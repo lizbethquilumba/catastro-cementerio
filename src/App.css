@@ -1,0 +1,148 @@
+/* RESET BÁSICO */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* CONTENEDOR PRINCIPAL */
+/* En escritorio: Pone Sidebar a la izquierda y Mapa a la derecha */
+.layout-principal {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* === SIDEBAR WRAPPER (LA CAJA QUE SE MUEVE) === */
+.sidebar-wrapper {
+  width: 380px;         /* Ancho de tu diseño original */
+  height: 100%;
+  flex-shrink: 0;       /* No dejes que se aplaste */
+  z-index: 1000;        /* Encima del mapa */
+  position: relative;
+  background-color: white; /* Fondo para que no sea transparente */
+  transition: transform 0.3s ease; /* Animación suave */
+  box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+/* Botones de control (Ocultos en PC) */
+.btn-hamburguesa, .btn-cerrar, .overlay-fondo {
+  display: none;
+}
+
+/* === MAPA WRAPPER === */
+.mapa-wrapper {
+  flex-grow: 1;         /* Ocupa todo el espacio restante a la derecha */
+  height: 100%;
+  position: relative;
+}
+
+/* =========================================
+   VISTA MÓVIL (Menos de 900px) 
+   ========================================= */
+@media (max-width: 900px) {
+
+  /* 1. EL MAPA OCUPA TODO EL ESPACIO (FONDO) */
+  .mapa-wrapper {
+    width: 100%;
+    height: 100%;
+    position: absolute; /* Clave: Se pone detrás de todo */
+    top: 0;
+    left: 0;
+    z-index: 0;
+  }
+
+  /* 2. EL SIDEBAR SE ESCONDE A LA IZQUIERDA */
+  .sidebar-wrapper {
+    position: absolute;   /* Flotante sobre el mapa */
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 320px;         /* Un poco más angosto en celular si quieres */
+    max-width: 85vw;      /* Que no tape toda la pantalla */
+    transform: translateX(-100%); /* ESCONDIDO POR DEFECTO */
+  }
+
+  /* 3. CLASE PARA MOSTRAR EL SIDEBAR */
+  .sidebar-wrapper.abierto {
+    transform: translateX(0); /* SE DESLIZA A LA VISTA */
+  }
+
+  /* 4. BOTÓN HAMBURGUESA FLOTANTE */
+  .btn-hamburguesa {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    z-index: 900; /* Encima del mapa, debajo del menú abierto */
+    background: white;
+    border: none;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    cursor: pointer;
+    color: #333;
+  }
+
+  /* 5. BOTÓN CERRAR (DENTRO DEL MENÚ) */
+  .btn-cerrar {
+    display: block;
+    position: absolute;
+    top: 10px;
+    right: 10px; /* Esquina superior derecha del menú morado */
+    background: rgba(255,255,255,0.2); /* Semi-transparente */
+    border: none;
+    color: white; /* Blanco para que se vea sobre el morado */
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    z-index: 1002;
+  }
+
+  /* 6. FONDO OSCURO AL ABRIR */
+  .overlay-fondo {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999; /* Debajo del sidebar, encima del mapa */
+    backdrop-filter: blur(2px);
+  }
+  
+  .overlay-fondo.activo {
+    display: block;
+  }
+}
+
+/* =========================================
+   CORRECCIÓN DE ALTURA DEL MAPA (ESTO FALTABA)
+   ========================================= */
+/* 1. Hacemos que el contenedor interno del mapa llene el wrapper */
+.mapa-cementerio-container {
+  width: 100%;
+  height: 100%;        /* IMPORTANTE: Esto arregla el error de altura 0 */
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background-color: #eef2ff; /* Color de fondo por si el mapa tarda en cargar */
+}
+
+/* 2. Hacemos que el div de OpenLayers ocupe todo el espacio */
+.mapa-cementerio-mapa {
+  flex: 1;             /* Ocupa todo el espacio vertical disponible */
+  width: 100%;
+  height: 100%;
+  min-height: 0;       /* Evita problemas de desbordamiento en Flexbox */
+}

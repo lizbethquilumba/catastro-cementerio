@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import Sidebar from './components/ui/Sidebar';
 import MapaCementerio from './components/mapa/MapaCementerio';
-import './index.css'; // Asegúrate de que los estilos globales estén limpios
+import './App.css'; 
 
 function App() {
   const [nichoABuscar, setNichoABuscar] = useState(null);
-  const [bloqueSeleccionado, setBloqueSeleccionado] = useState(null); // HU-GEO-07
+  const [bloqueSeleccionado, setBloqueSeleccionado] = useState(null);
   const [configuracionCapas, setConfiguracionCapas] = useState({
     'cementerio_general': true,
     'infraestructura': true,
@@ -13,7 +13,15 @@ function App() {
     'nichos_geom': true
   });
 
-  // Configuración de nombres amigables para el Sidebar
+  // --- NUEVO CÓDIGO AÑADIDO: FILTRO DE ESTADOS ---
+  // Guardamos qué estados se deben mostrar. Por defecto: todos.
+  // IMPORTANTE: Estos textos ('disponible', 'ocupado', 'reservado') deben ser 
+  // IGUALES a como están escritos en tu base de datos (PostgreSQL).
+  const [estadosVisibles, setEstadosVisibles] = useState(['disponible', 'ocupado', 'reservado']);
+
+  // Estado para abrir/cerrar menú en móvil
+  const [menuAbierto, setMenuAbierto] = useState(false);
+
   const listaCapas = [
     { id: 'cementerio_general', nombre: 'Límites del Cementerio' },
     { id: 'infraestructura', nombre: 'Caminos y Edificios' },
@@ -21,23 +29,57 @@ function App() {
     { id: 'nichos_geom', nombre: 'Nichos Individuales' },
   ];
 
+  // Función para cerrar el menú automáticamente al seleccionar algo
+  const cerrarMenu = () => setMenuAbierto(false);
+
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <div className="layout-principal">
       
-      {/* 1. BARRA LATERAL IZQUIERDA */}
-      <Sidebar 
-        alBuscar={(codigo) => setNichoABuscar(codigo)}
-        alCambiarCapas={(nuevasCapas) => setConfiguracionCapas(nuevasCapas)}
-        alSeleccionarBloque={(bloque) => setBloqueSeleccionado(bloque)}
-        capasConfig={listaCapas}
+      {/* BOTÓN HAMBURGUESA (Solo visible en móvil por CSS) */}
+      <button 
+        className="btn-hamburguesa"
+        onClick={() => setMenuAbierto(true)}
+      >
+        ☰
+      </button>
+
+      {/* OVERLAY OSCURO (Solo visible cuando el menú está abierto) */}
+      <div 
+        className={`overlay-fondo ${menuAbierto ? 'activo' : ''}`} 
+        onClick={cerrarMenu}
       />
 
-      {/* 2. MAPA A LA DERECHA (Ocupa el resto) */}
-      <MapaCementerio 
-        nichoSeleccionado={nichoABuscar}
-        bloqueSeleccionado={bloqueSeleccionado}
-        capasVisiblesEstado={configuracionCapas}
-      />
+      {/* CONTENEDOR DEL SIDEBAR (Se mueve sin afectar el diseño interno) */}
+      <div className={`sidebar-wrapper ${menuAbierto ? 'abierto' : ''}`}>
+        
+        {/* Botón X para cerrar dentro del menú */}
+        <button className="btn-cerrar" onClick={cerrarMenu}>✕</button>
+
+        {/* TU SIDEBAR ORIGINAL */}
+        <Sidebar 
+          alBuscar={(codigo) => { setNichoABuscar(codigo); cerrarMenu(); }}
+          alCambiarCapas={setConfiguracionCapas}
+          alSeleccionarBloque={(bloque) => { setBloqueSeleccionado(bloque); cerrarMenu(); }}
+          capasConfig={listaCapas}
+          className="sidebar-componente-interno" 
+          
+          // --- AQUÍ PASAMOS LAS PROPS NUEVAS AL SIDEBAR ---
+          estadosSeleccionados={estadosVisibles}
+          alCambiarEstados={setEstadosVisibles}
+        />
+      </div>
+
+      {/* MAPA (Siempre ocupa el 100% del fondo en móvil) */}
+      <div className="mapa-wrapper">
+        <MapaCementerio 
+          nichoSeleccionado={nichoABuscar}
+          bloqueSeleccionado={bloqueSeleccionado}
+          capasVisiblesEstado={configuracionCapas}
+          
+          // --- AQUÍ PASAMOS EL FILTRO AL MAPA ---
+          estadosVisibles={estadosVisibles}
+        />
+      </div>
 
     </div>
   );
