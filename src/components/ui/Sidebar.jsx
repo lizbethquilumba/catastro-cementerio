@@ -272,7 +272,7 @@ const Sidebar = ({
       <div style={{ padding: '25px', background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)', color: 'white' }}>
         <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', display:'flex', alignItems:'center', gap:'10px' }}>
           <img src={logo} alt="Logo" style={{ width: '30px', height: '30px', background:'white', borderRadius:'8px', padding:'2px' }} />
-          UNORICO SAMASHUNCHIK
+          ORGANIZACIÓN UNORICO SAMASHUNCHIK
         </h2>
         <p style={{ margin: '5px 0 0 0', fontSize: '12px', opacity: 0.9 }}>Otavalo - Ecuador</p>
       </div>
