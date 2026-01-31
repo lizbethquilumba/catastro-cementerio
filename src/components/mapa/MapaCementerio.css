@@ -1,0 +1,326 @@
+/* src/components/mapa/MapaCementerio.css */
+
+.mapa-cementerio-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background-color: #f1f5f9;
+    overflow: hidden;
+}
+
+.mapa-cementerio-mapa {
+    width: 100%;
+    height: 100%;
+}
+
+/* LOADER */
+.map-loader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #6366f1;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #e0e7ff;
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ETIQUETA BLOQUE (Floating) */
+.block-label {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translate(-50%, -20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translate(-50%, 0);
+        opacity: 1;
+    }
+}
+
+/* NOTIFICACIONES */
+.map-notification {
+    position: absolute;
+    top: 80px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 1100;
+    animation: slideInRight 0.3s ease-out;
+    font-weight: 600;
+}
+
+.notif-success {
+    border-left: 5px solid #22c55e;
+    color: #15803d;
+}
+
+.notif-error {
+    border-left: 5px solid #ef4444;
+    color: #b91c1c;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* POPUP ESTILIZADO */
+.map-popup {
+    position: absolute;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    min-width: 280px;
+    max-width: 320px;
+    /* overflow: hidden; -- REMOVIDO para probar si ayuda, aunque border-radius lo pide */
+    overflow: hidden;
+    border: 1px solid #e0e7ff;
+    animation: fadeIn 0.15s ease-out;
+    /* Más rápido */
+    bottom: 15px;
+    /* Un poco elevado del punto */
+    left: -140px;
+    /* Centrado horizontal (mitad de min-width aprox) - Ajustado por Overlay positioning */
+    /* Overlay de OL sobreescribe left/bottom, pero mantenemos base */
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* HEADER POPUP (Morado) */
+.popup-header {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    padding: 12px 16px;
+    /* Reducido un poco */
+    color: white;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.popup-icon {
+    font-size: 16px;
+}
+
+.popup-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.popup-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.popup-close:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+/* CONTENIDO POPUP */
+.popup-content {
+    padding: 16px;
+}
+
+/* ESTADO (Badge grande) */
+.popup-state-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    background: #f8fafc;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.popup-label {
+    font-weight: 600;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.state-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: white;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.state-ocupado {
+    background-color: #ef4444;
+}
+
+.state-disponible {
+    background-color: #22c55e;
+}
+
+.state-reservado {
+    background-color: #eab308;
+}
+
+.state- {
+    background-color: #94a3b8;
+}
+
+/* GRID INFO (Bloque/Sector) - LADO A LADO */
+.popup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    /* DOS COLUMNAS IGUALES */
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.info-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 10px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.info-label {
+    display: block;
+    font-size: 10px;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+
+.info-value {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.2;
+}
+
+/* TARJETA DIFUNTO (Amarilla - Estilo Específico Solicitado) */
+.deceased-card {
+    background: #fef9c3;
+    /* Amarillo claro */
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid #facc15;
+    margin-top: 5px;
+}
+
+.deceased-header {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    color: #854d0e;
+    /* Marrón dorado */
+    text-transform: uppercase;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 0.5px;
+}
+
+.deceased-info-group {
+    margin-bottom: 8px;
+}
+
+.deceased-info-group:last-child {
+    margin-bottom: 0;
+}
+
+.deceased-label {
+    font-size: 10px;
+    color: #a16207;
+    /* Dorado oscuro */
+    display: block;
+    font-weight: 600;
+    margin-bottom: 1px;
+}
+
+.deceased-value {
+    font-size: 13px;
+    font-weight: 700;
+    /* Negrita */
+    color: #422006;
+    /* Marrón casi negro */
+    display: block;
+    line-height: 1.2;
+}
