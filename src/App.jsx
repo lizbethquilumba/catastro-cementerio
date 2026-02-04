@@ -6,6 +6,7 @@ import './App.css';
 function App() {
   const [nichoABuscar, setNichoABuscar] = useState({ codigo: null, ts: 0 });
   const [bloqueSeleccionado, setBloqueSeleccionado] = useState(null);
+  const [sectorSeleccionado, setSectorSeleccionado] = useState(null); // Nuevo estado
   const [configuracionCapas, setConfiguracionCapas] = useState({
     'cementerio_general': true,
     'infraestructura': true,
@@ -13,7 +14,7 @@ function App() {
     'nichos_geom': true
   });
 
-  const [estadosVisibles, setEstadosVisibles] = useState(['Disponible', 'Ocupado', 'Mantenimiento']);
+  const [estadosVisibles, setEstadosVisibles] = useState([]);
   const [menuAbierto, setMenuAbierto] = useState(false);
 
   const listaCapas = [
@@ -24,6 +25,16 @@ function App() {
   ];
 
   const cerrarMenu = () => setMenuAbierto(false);
+
+  // EFECTO PARA LEER URL PARAMETROS (Integración con sistema externo)
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const codigoURL = params.get('buscar'); // ej. ?buscar=B01-N05
+    if (codigoURL) {
+      console.log("Detectado parámetro URL:", codigoURL);
+      setNichoABuscar({ codigo: codigoURL, ts: Date.now() });
+    }
+  }, []);
 
   return (
     <div className="layout-principal">
@@ -48,6 +59,7 @@ function App() {
           }}
           alCambiarCapas={setConfiguracionCapas}
           alSeleccionarBloque={(bloque) => { setBloqueSeleccionado(bloque); cerrarMenu(); }}
+          alSeleccionarSector={(sector) => { setSectorSeleccionado(sector); }} // Nuevo prop
           capasConfig={listaCapas}
           className="sidebar-componente-interno"
           estadosSeleccionados={estadosVisibles}
@@ -59,6 +71,7 @@ function App() {
         <MapaCementerio
           nichoSeleccionado={nichoABuscar}
           bloqueSeleccionado={bloqueSeleccionado}
+          sectorSeleccionado={sectorSeleccionado} // Nuevo prop
           capasVisiblesEstado={configuracionCapas}
           estadosVisibles={estadosVisibles}
           alDeseleccionarNicho={() => setNichoABuscar({ codigo: null, ts: Date.now() })}

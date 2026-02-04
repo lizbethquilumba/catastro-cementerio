@@ -6,7 +6,7 @@ import { GeoJSON } from 'ol/format';
 import { fromLonLat } from 'ol/proj';
 import './MapaCementerio.css';
 
-const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEstado, estadosVisibles, alDeseleccionarNicho }) => {
+const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccionado, capasVisiblesEstado, estadosVisibles, alDeseleccionarNicho }) => {
 
   // 1. REFS Y ESTADOS
   const mapElement = useRef(null);
@@ -23,6 +23,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
 
   const capaResaltadoRef = useRef(null);
   const capaResaltadoBloqueRef = useRef(null);
+  const capaResaltadoSectorRef = useRef(null); // Ref para resaltar Sector
+  const capaResaltadoEstadosRef = useRef(null); // Nueva ref para el marcado masivo
 
   const [datosPopup, setDatosPopup] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -38,7 +40,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
         'typename': 'otavalo_cementerio:cementerio_general', 'outputFormat': 'application/json',
         'srsName': 'EPSG:4326', 'maxFeatures': '1'
       });
-      // USANDO CONSTANTE
       const respuesta = await fetch(`http://localhost:8080/geoserver/otavalo_cementerio/ows?${params.toString()}`);
       if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
       const datosGeoJSON = await respuesta.json();
@@ -55,13 +56,11 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
     const datosFinales = { ...props };
     let bloqueEncontrado = false;
 
-    // 1. HEURÍSTICA: Deducir bloque por código (ej: B1-...)
     if (props.codigo) {
       const matchCodigo = props.codigo.match(/^B(\d+)-/i);
       if (matchCodigo && matchCodigo[1]) {
         const numeroBloque = matchCodigo[1];
         const codigoBloqueBuscado = `B-${numeroBloque.padStart(2, '0')}`;
-
         const { data: bGeom } = await supabase
           .from('bloques_geom')
           .select('nombre, sector')
@@ -76,7 +75,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
       }
     }
 
-    // 2. FALLBACK: Admin Table Link
     if (!bloqueEncontrado && props.codigo) {
       const { data: dbNicho } = await supabase
         .from('nichos')
@@ -92,7 +90,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
       }
     }
 
-    // 3. ESTADO
     if (props.codigo) {
       const { data: estadoData } = await supabase
         .from('nichos')
@@ -102,24 +99,39 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
       if (estadoData) datosFinales.estado = estadoData.estado;
     }
 
-    // 4. DIFUNTO Y RESPONSABLE
     let datosDifuntoFinal = null;
     if (props.codigo) {
-      const { data: nAdmin } = await supabase.from('nichos').select('id').eq('codigo', props.codigo).maybeSingle();
+      // Intentamos buscar el nicho por código exacto
+      let { data: nAdmin } = await supabase.from('nichos').select('id').eq('codigo', props.codigo).maybeSingle();
+
+      // Si no hay match exacto, intentamos un like (por si acaso haya espacios o diferencias menores)
+      if (!nAdmin) {
+        const { data: nLike } = await supabase.from('nichos').select('id').ilike('codigo', props.codigo).limit(1);
+        if (nLike && nLike.length > 0) nAdmin = nLike[0];
+      }
+
       if (nAdmin) {
+        // Buscamos la relación, priorizando el ocupante actual (sin fecha exhumación) y el registros más reciente
         const { data: rel } = await supabase
           .from('fallecido_nicho')
-          .select(`fallecidos (nombres, apellidos, fecha_fallecimiento)`)
+          .select(`fallecidos (nombres, apellidos, fecha_fallecimiento), socios (nombres, apellidos)`)
           .eq('nicho_id', nAdmin.id)
-          .maybeSingle();
-        if (rel) datosDifuntoFinal = rel;
+          .is('fecha_exhumacion', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (rel && rel.length > 0) datosDifuntoFinal = rel[0];
       }
     }
 
     if (datosDifuntoFinal?.fallecidos) {
+      const nombreResponsable = datosDifuntoFinal.socios
+        ? `${datosDifuntoFinal.socios.nombres} ${datosDifuntoFinal.socios.apellidos}`
+        : 'No definido';
+
       datosFinales.difunto = {
         nombre: `${datosDifuntoFinal.fallecidos.nombres} ${datosDifuntoFinal.fallecidos.apellidos}`,
-        responsable: 'No definido' // La tabla fallecidos no tiene columna responsable
+        responsable: nombreResponsable
       };
     } else {
       datosFinales.difunto = null;
@@ -132,7 +144,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
     setDatosPopup(null);
     if (overlayRef.current) overlayRef.current.setPosition(undefined);
     if (capaResaltadoRef.current) capaResaltadoRef.current.clear();
-    // Notificar al padre para limpiar el estado global de búsqueda
     if (alDeseleccionarNicho) alDeseleccionarNicho();
   };
 
@@ -152,6 +163,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
 
       capaResaltadoRef.current = new VectorSource();
       capaResaltadoBloqueRef.current = new VectorSource();
+      capaResaltadoSectorRef.current = new VectorSource(); // Fuente para sector
+      capaResaltadoEstadosRef.current = new VectorSource();
 
       const extentCementerio = await obtenerExtentCementerio();
 
@@ -182,25 +195,40 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
         source: capaResaltadoBloqueRef.current, zIndex: 998,
         style: new Style({ stroke: new Stroke({ color: '#8B5CF6', width: 2 }), fill: new Fill({ color: 'rgba(139, 92, 246, 0.15)' }) })
       });
+      // Capa Vectorial para SECTOR (Violeta Suave)
+      const capaVectorSector = new VectorLayer({
+        source: capaResaltadoSectorRef.current, zIndex: 997,
+        style: new Style({ stroke: new Stroke({ color: '#8B5CF6', width: 2.5 }), fill: new Fill({ color: 'rgba(139, 92, 246, 0.12)' }) })
+      });
+
+      const capaVectorEstados = new VectorLayer({
+        source: capaResaltadoEstadosRef.current, zIndex: 990,
+        style: (feature) => {
+          const est = (feature.get('estado') || feature.get('ESTADO') || feature.get('Estado') || '').toLowerCase();
+          const colors = {
+            ocupado: { stroke: '#ef4444', fill: 'rgba(239, 68, 68, 0.7)' },
+            disponible: { stroke: '#22c55e', fill: 'rgba(34, 197, 94, 0.7)' },
+            mantenimiento: { stroke: '#fbbf24', fill: 'rgba(251, 191, 36, 0.7)' },
+            reservado: { stroke: '#fbbf24', fill: 'rgba(251, 191, 36, 0.7)' }
+          };
+          const c = colors[est] || { stroke: '#94a3b8', fill: 'rgba(148, 163, 184, 0.2)' };
+          return new Style({
+            stroke: new Stroke({ color: c.stroke, width: 2 }),
+            fill: new Fill({ color: c.fill })
+          });
+        }
+      });
 
       const overlay = new Overlay({
         element: popupRef.current,
-        // CORRECCIÓN: AutoPan habilitado pero suave para asegurar visibilidad
-        autoPan: {
-          animation: {
-            duration: 300,
-          },
-          margin: 20
-        },
-        positioning: 'bottom-center',
-        stopEvent: false,
-        offset: [0, -10]
+        autoPan: { animation: { duration: 300 }, margin: 20 },
+        positioning: 'bottom-center', stopEvent: false, offset: [0, -10]
       });
       overlayRef.current = overlay;
 
       const nuevoMapa = new Map({
         target: mapElement.current,
-        layers: [new TileLayer({ source: new OSM(), zIndex: 0 }), capaCementerio, capaInfraestructura, capaBloques, capaNichos, capaVectorBloque, capaVector],
+        layers: [new TileLayer({ source: new OSM(), zIndex: 0 }), capaCementerio, capaInfraestructura, capaBloques, capaNichos, capaVectorEstados, capaVectorSector, capaVectorBloque, capaVector],
         overlays: [overlay],
         view: new View({ center: fromLonLat([-78.271892, -0.234494]), zoom: 18, minZoom: 16, maxZoom: 22 }),
       });
@@ -210,35 +238,23 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
         nuevoMapa.getView().fit(extentCementerio, { padding: [50, 50, 50, 50], maxZoom: 19 });
       }
 
-      // === LOGICA CLICK ===
       nuevoMapa.on('singleclick', async (evt) => {
-        // Limpiar para UX
         setDatosPopup(null);
         if (overlayRef.current) overlayRef.current.setPosition(undefined);
-
         const source = capasRef.current.nichos_geom?.getSource();
         if (!source) return;
-
         const url = source.getFeatureInfoUrl(evt.coordinate, nuevoMapa.getView().getResolution(), nuevoMapa.getView().getProjection(), { 'INFO_FORMAT': 'application/json', 'FEATURE_COUNT': 1 });
-
         if (url) {
           try {
             const res = await fetch(url);
             const data = await res.json();
-
             if (data.features && data.features.length > 0) {
               const feature = new GeoJSON().readFeature(data.features[0]);
-              capaResaltadoRef.current.clear();
-              capaResaltadoRef.current.addFeature(feature);
-
+              capaResaltadoRef.current.clear(); capaResaltadoRef.current.addFeature(feature);
               const props = data.features[0].properties;
-
-              // LLAMADA A FUNCION CENTRALIZADA
               const datosFinales = await obtenerDatosCompletoNicho(props);
-
               setDatosPopup(datosFinales);
               if (overlayRef.current) overlayRef.current.setPosition(evt.coordinate);
-
             } else {
               capaResaltadoRef.current.clear();
             }
@@ -251,7 +267,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
     };
 
     inicializarMapa();
-
     return () => {
       if (mapaRef.current) { mapaRef.current.setTarget(null); mapaRef.current = null; }
     };
@@ -267,96 +282,180 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
     if (c.nichos_geom) c.nichos_geom.setVisible(capasVisiblesEstado.nichos_geom);
   }, [capasVisiblesEstado, inicializado]);
 
+  // EFECTO DE MARCADO (Sincronizado con Supabase para datos siempre frescos)
   useEffect(() => {
-    if (!inicializado || !capasRef.current.nichos_geom) return;
-    const src = capasRef.current.nichos_geom.getSource();
-    // Si no hay ningún estado seleccionado, mostramos todos los nichos (según solicitud)
-    if (!estadosVisibles || estadosVisibles.length === 0) {
-      src.updateParams({ 'CQL_FILTER': undefined });
-      return;
-    }
+    if (!inicializado || !capasRef.current.nichos_geom || !capaResaltadoEstadosRef.current) return;
 
-    // Mapeamos los estados de la UI a los valores que el GeoServer reconoce
-    // Si la UI pide 'Mantenimiento', buscamos 'MANTENIMIENTO' y 'RESERVADO'
-    const estadosParaFiltro = estadosVisibles.flatMap(e => {
-      const upper = e.toUpperCase();
-      if (upper === 'MANTENIMIENTO') return ['MANTENIMIENTO', 'RESERVADO'];
-      return [upper];
-    });
+    capasRef.current.nichos_geom.getSource().updateParams({ 'CQL_FILTER': undefined });
+    capaResaltadoEstadosRef.current.clear();
 
-    const filtro = [...new Set(estadosParaFiltro)].map(e => `'${e}'`).join(',');
-    src.updateParams({ 'CQL_FILTER': `estado IN (${filtro})` });
+    if (!estadosVisibles || estadosVisibles.length === 0) return;
+
+    const actualizarPintado = async () => {
+      try {
+        const nichosFinales = [];
+
+        // 1. Estados de Negocio: OCUPADO y MANTENIMIENTO se leen de la tabla 'nichos'
+        const estadosNegocio = estadosVisibles.filter(e => {
+          const el = e.toLowerCase();
+          return el === 'ocupado' || el === 'mantenimiento';
+        });
+
+        if (estadosNegocio.length > 0) {
+          const variants = estadosNegocio.flatMap(e => [e, e.toUpperCase(), e.toLowerCase()]);
+          const { data: desc } = await supabase
+            .from('nichos')
+            .select('codigo, estado')
+            .in('estado', variants);
+          if (desc) nichosFinales.push(...desc);
+        }
+
+        // 2. Estado Físico: DISPONIBLE se lee de 'nichos_geom', PERO validando que no esté ocupado administrativamente
+        if (estadosVisibles.some(e => e.toLowerCase() === 'disponible')) {
+          // A. Buscamos "Lista Negra": Nichos que administrativamente NO están disponibles
+          // Aumentamos el rango para traer TODOS (por defecto supabase trae solo 1000)
+          const { data: ocupadosAdmin } = await supabase
+            .from('nichos')
+            .select('codigo')
+            .or('estado.ilike.ocupado,estado.ilike.mantenimiento')
+            .range(0, 29999);
+
+          const setOcupados = new Set(ocupadosAdmin?.map(o => o.codigo));
+
+          // B. Buscamos TODOS los nichos del mapa (Físicos)
+          // Asumimos que todo lo dibujado es un nicho potencial.
+          // Quitamos el filtro de texto 'Disponible' para abarcar todo lo que no esté ocupado.
+          const { data: geomData } = await supabase
+            .from('nichos_geom')
+            .select('codigo') // No necesitamos estado de la geom, forzaremos Disponible
+            .range(0, 29999);
+
+          // C. Filtramos: Geometría - Lista Negra
+          if (geomData) {
+            const filtrados = geomData.filter(g => !setOcupados.has(g.codigo));
+            // Forzamos el estado para que el pintor sepa que es Verde
+            const conEstado = filtrados.map(f => ({ codigo: f.codigo, estado: 'Disponible' }));
+            nichosFinales.push(...conEstado);
+          }
+        }
+
+        const nichosDB = nichosFinales; // Mantenemos nombre de variable anterior para no romper abajo
+
+        if (!nichosDB || nichosDB.length === 0) return;
+
+        const codigos = nichosDB.map(n => n.codigo);
+
+        // Dividimos en bloques para el WFS (Reducido a 50 para evitar URLs muy largas)
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < codigos.length; i += CHUNK_SIZE) {
+          const chunk = codigos.slice(i, i + CHUNK_SIZE);
+          const filter = `codigo IN (${chunk.map(c => `'${c}'`).join(',')})`;
+          const url = `http://localhost:8080/geoserver/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=${encodeURIComponent(filter)}`;
+
+          const res = await fetch(url);
+          if (!res.ok) continue;
+
+          const data = await res.json();
+          if (data.features) {
+            const features = new GeoJSON().readFeatures(data, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
+            features.forEach(f => {
+              const codigoF = f.get('codigo') || f.get('CODIGO');
+              const d = nichosDB.find(n => n.codigo === codigoF);
+              if (d) f.set('estado', d.estado);
+            });
+            capaResaltadoEstadosRef.current.addFeatures(features);
+          }
+        }
+      } catch (e) {
+        console.error("Error pìntado:", e);
+      }
+    };
+
+    actualizarPintado();
   }, [estadosVisibles, inicializado]);
 
-  // ZOOM Y LIMPIEZA
+  // ZOOM Y BUSQUEDA
   useEffect(() => {
     const nichoCodigo = nichoSeleccionado?.codigo;
     if (!inicializado || !mapaRef.current || !nichoCodigo) return;
 
-    console.log(`---- ZOOM EVENTO ----`);
-    console.log(`Nicho a buscar: ${nichoCodigo}`);
-
-    // Limpiamos popup previo
-    setDatosPopup(null);
-    if (overlayRef.current) overlayRef.current.setPosition(undefined);
-
     const doZoom = async () => {
-      // USANDO CONSTANTE
       const url = `http://localhost:8080/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=codigo='${nichoCodigo}'`;
-
       try {
-        console.log(`Fetching GeoServer: ${url}`);
         const r = await fetch(url);
         const d = await r.json();
-
         if (d.features?.length) {
-          console.log(`Feature encontrada en GeoServer!`);
           const f = new GeoJSON().readFeatures(d, { featureProjection: 'EPSG:3857' });
-          const feature = f[0];
-          const geometry = feature.getGeometry();
-          const extent = geometry.getExtent();
-
           capaResaltadoRef.current.clear();
           capaResaltadoRef.current.addFeatures(f);
-
-          mapaRef.current.getView().fit(extent, { duration: 1000, maxZoom: 21, padding: [100, 100, 100, 100] });
-
-          // --- MOSTRAR POPUP AUTOMÁTICAMENTE ---
-          const props = feature.getProperties();
+          mapaRef.current.getView().fit(f[0].getGeometry().getExtent(), { duration: 1000, maxZoom: 21, padding: [100, 100, 100, 100] });
+          const props = f[0].getProperties();
           const datosCompletos = await obtenerDatosCompletoNicho(props);
           setDatosPopup(datosCompletos);
-
-          const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
-          if (overlayRef.current) overlayRef.current.setPosition(center);
-
-        } else {
-          console.warn(`Nicho ${nichoCodigo} no existe en Geoserver`);
+          const extent = f[0].getGeometry().getExtent();
+          overlayRef.current?.setPosition([(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2]);
         }
-      } catch (e) {
-        console.error("Error en doZoom:", e);
-      }
+      } catch (e) { }
     };
     doZoom();
   }, [nichoSeleccionado?.ts, inicializado]);
 
+
+
+  // EFECTO SECTOR
+  useEffect(() => {
+    if (!inicializado || !mapaRef.current) return;
+
+    if (!sectorSeleccionado) {
+      capaResaltadoSectorRef.current?.clear();
+      return;
+    }
+
+    const doZoomSector = async () => {
+      // Consultamos TODOS los bloques que pertenezcan a ese sector
+      // La capa es bloques_geom, columna sector
+      const url = `http://localhost:8080/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:bloques_geom&outputFormat=application/json&CQL_FILTER=sector='${sectorSeleccionado}'`;
+
+      try {
+        const r = await fetch(url);
+        const d = await r.json();
+
+        if (d.features?.length) {
+          const features = new GeoJSON().readFeatures(d, { featureProjection: 'EPSG:3857' });
+          capaResaltadoSectorRef.current.clear();
+          capaResaltadoSectorRef.current.addFeatures(features);
+
+          // Calcular extent total de todos los bloques
+          const extent = features[0].getGeometry().getExtent();
+          features.forEach(f => {
+            const e = f.getGeometry().getExtent();
+            import('ol/extent').then(({ extend }) => extend(extent, e));
+          });
+
+          mapaRef.current.getView().fit(extent, { duration: 1000, maxZoom: 19, padding: [50, 50, 50, 50] });
+        }
+      } catch (e) { console.error("Error zoom sector", e); }
+    };
+    doZoomSector();
+  }, [sectorSeleccionado, inicializado]);
+
   useEffect(() => {
     if (!inicializado || !mapaRef.current || !bloqueSeleccionado) {
-      // LIMPIAR AL DESELECCIONAR
       if (!bloqueSeleccionado) {
         capaResaltadoBloqueRef.current?.clear();
         setEtiquetaBloque(null);
         setDatosPopup(null);
-        if (overlayRef.current) overlayRef.current.setPosition(undefined);
+        overlayRef.current?.setPosition(undefined);
       }
       return;
     }
+    // Si seleccionamos bloque específico, podríamos limpiar el sector o mantenerlo.
+    // Usuario pidió explícitamente: "una vez que selecciona el bloque ya se desmarque el sector"
+    capaResaltadoSectorRef.current?.clear();
 
-    // LIMPIAR AL CAMBIAR BLOQUE
     setDatosPopup(null);
-    if (overlayRef.current) overlayRef.current.setPosition(undefined);
-
+    overlayRef.current?.setPosition(undefined);
     const doZoomB = async () => {
-      // USANDO CONSTANTE
       const url = `http://localhost:8080/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:bloques_geom&outputFormat=application/json&CQL_FILTER=codigo='${bloqueSeleccionado.codigo}'`;
       try {
         const r = await fetch(url); const d = await r.json();
@@ -374,47 +473,22 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, capasVisiblesEs
   return (
     <div className="mapa-cementerio-container">
       {etiquetaBloque && <div className="block-label"><span>📍</span><span>Bloque: {etiquetaBloque}</span></div>}
-
-      {cargando && <div className="map-loader"><div className="spinner" /><p style={{ fontSize: '18px', fontWeight: '500' }}>Cargando mapa...</p></div>}
-
+      {cargando && <div className="map-loader"><div className="spinner" /><p>Cargando mapa...</p></div>}
       <div ref={mapElement} className="mapa-cementerio-mapa" />
-
       <div ref={popupRef} className="map-popup" style={{ display: datosPopup ? 'block' : 'none' }}>
         <div className="popup-header">
           <span className="popup-icon">📍</span>
           <h4 className="popup-title">Nicho {datosPopup?.codigo || '-'}</h4>
           <button onClick={cerrarNichoPopup} className="popup-close">×</button>
         </div>
-
         {datosPopup && (
           <div className="popup-content">
             <div className="popup-state-wrapper">
               <span className="popup-label">Estado:</span>
               <span className={`state-badge state-${datosPopup.estado?.toLowerCase()}`}>{datosPopup.estado || 'DESCONOCIDO'}</span>
             </div>
-
-            <div className="popup-grid">
-              <div className="info-card">
-                <span className="info-label">Bloque</span>
-                <span className="info-value">{datosPopup.bloque || 'N/A'}</span>
-              </div>
-              <div className="info-card">
-                <span className="info-label">Sector</span>
-                <span className="info-value">{datosPopup.sector || 'N/A'}</span>
-              </div>
-            </div>
-
-            <div className="deceased-card">
-              <h5 className="deceased-header">🕊️ INFORMACIÓN DEL DIFUNTO</h5>
-              <div className="deceased-info-group">
-                <span className="deceased-label">Difunto</span>
-                <span className="deceased-value">{datosPopup.difunto?.nombre || 'N/A'}</span>
-              </div>
-              <div className="deceased-info-group">
-                <span className="deceased-label">Responsable</span>
-                <span className="deceased-value">{datosPopup.difunto?.responsable || 'N/A'}</span>
-              </div>
-            </div>
+            <div className="popup-grid"><div className="info-card"><span className="info-label">Bloque</span><span className="info-value">{datosPopup.bloque || 'N/A'}</span></div><div className="info-card"><span className="info-label">Sector</span><span className="info-value">{datosPopup.sector || 'N/A'}</span></div></div>
+            <div className="deceased-card"><h5 className="deceased-header">🕊️ INFORMACIÓN DEL DIFUNTO</h5><div className="deceased-info-group"><span className="deceased-label">Difunto</span><span className="deceased-value">{datosPopup.difunto?.nombre || 'N/A'}</span></div><div className="deceased-info-group"><span className="deceased-label">Responsable</span><span className="deceased-value">{datosPopup.difunto?.responsable || 'N/A'}</span></div></div>
           </div>
         )}
       </div>
