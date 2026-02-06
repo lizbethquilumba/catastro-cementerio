@@ -40,7 +40,7 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         'typename': 'otavalo_cementerio:cementerio_general', 'outputFormat': 'application/json',
         'srsName': 'EPSG:4326', 'maxFeatures': '1'
       });
-      const respuesta = await fetch(`http://localhost:8080/geoserver/otavalo_cementerio/ows?${params.toString()}`);
+      const respuesta = await fetch(`http://localhost:8080/geoserver/unorico_samashunchik/ows?${params.toString()}`);
       if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
       const datosGeoJSON = await respuesta.json();
       const features = new GeoJSON().readFeatures(datosGeoJSON, {
