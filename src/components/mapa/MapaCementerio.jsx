@@ -297,55 +297,44 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
 
     const actualizarPintado = async () => {
       try {
-        const nichosFinales = [];
-
-        // 1. Estados de Negocio: OCUPADO y MANTENIMIENTO se leen de la tabla 'nichos'
-        const estadosNegocio = estadosVisibles.filter(e => {
-          const el = e.toLowerCase();
-          return el === 'ocupado' || el === 'mantenimiento';
-        });
-
-        if (estadosNegocio.length > 0) {
-          const variants = estadosNegocio.flatMap(e => [e, e.toUpperCase(), e.toLowerCase()]);
-          const { data: desc } = await supabase
-            .from('nichos')
-            .select('codigo, estado')
-            .in('estado', variants);
-          if (desc) nichosFinales.push(...desc);
+        if (!estadosVisibles || estadosVisibles.length === 0) {
+          capaResaltadoEstadosRef.current.clear();
+          return;
         }
 
-        // 2. Estado Físico: DISPONIBLE se lee de 'nichos_geom', PERO validando que no esté ocupado administrativamente
-        if (estadosVisibles.some(e => e.toLowerCase() === 'disponible')) {
-          // A. Buscamos "Lista Negra": Nichos que administrativamente NO están disponibles
-          // Aumentamos el rango para traer TODOS (por defecto supabase trae solo 1000)
-          const { data: ocupadosAdmin } = await supabase
-            .from('nichos')
-            .select('codigo')
-            .or('estado.ilike.ocupado,estado.ilike.mantenimiento')
-            .range(0, 29999);
+        // Normalizamos los estados seleccionados para coincidir con la base de datos
+        // Mapeo explícito de estados UI a estados DB
+        // NOTA: Los botones de arriba envían "Disponible" y "Ocupado", pero NO los mapeamos
+        // para que no pinten nada por sí solos. Solo pintamos cuando se eligen los de abajo.
+        const mapeoEstados = {
+          'Estado_Bueno': 'Disponible',
+          'Estado_Malo': 'Ocupado',
+          'Mantenimiento': 'Mantenimiento'
+        };
 
-          const setOcupados = new Set(ocupadosAdmin?.map(o => o.codigo));
+        const estadosNormalizados = estadosVisibles
+          .map(e => mapeoEstados[e]) // Solo mapeamos lo que está en el diccionario
+          .filter(Boolean); // Filtramos undefined (lo que venga de botones de arriba se ignora)
 
-          // B. Buscamos TODOS los nichos del mapa (Físicos)
-          // Asumimos que todo lo dibujado es un nicho potencial.
-          // Quitamos el filtro de texto 'Disponible' para abarcar todo lo que no esté ocupado.
-          const { data: geomData } = await supabase
-            .from('nichos_geom')
-            .select('codigo') // No necesitamos estado de la geom, forzaremos Disponible
-            .range(0, 29999);
+        // Generamos variantes por si acaso (aunque idealmente la DB debería estar normalizada)
+        const variantes = estadosNormalizados.flatMap(e => [e, e.toLowerCase(), e.toUpperCase(), e.charAt(0).toUpperCase() + e.slice(1).toLowerCase()]);
 
-          // C. Filtramos: Geometría - Lista Negra
-          if (geomData) {
-            const filtrados = geomData.filter(g => !setOcupados.has(g.codigo));
-            // Forzamos el estado para que el pintor sepa que es Verde
-            const conEstado = filtrados.map(f => ({ codigo: f.codigo, estado: 'Disponible' }));
-            nichosFinales.push(...conEstado);
-          }
+        // Hacemos una ÚNICA consulta a la tabla 'nichos'
+        const { data: nichosDB, error } = await supabase
+          .from('nichos')
+          .select('codigo, estado')
+          .in('estado', [...new Set(variantes)]) // Deduplicar variantes
+          .range(0, 2000); // Límite seguro, paginar si crece mucho
+
+        if (error) {
+          console.error("Error consultando nichos:", error);
+          return;
         }
 
-        const nichosDB = nichosFinales; // Mantenemos nombre de variable anterior para no romper abajo
-
-        if (!nichosDB || nichosDB.length === 0) return;
+        if (!nichosDB || nichosDB.length === 0) {
+          capaResaltadoEstadosRef.current.clear();
+          return;
+        }
 
         const codigos = nichosDB.map(n => n.codigo);
 
@@ -353,7 +342,10 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         const CHUNK_SIZE = 50;
         for (let i = 0; i < codigos.length; i += CHUNK_SIZE) {
           const chunk = codigos.slice(i, i + CHUNK_SIZE);
-          const filter = `codigo IN (${chunk.map(c => `'${c}'`).join(',')})`;
+          // Escapamos comillas simples en los códigos por seguridad
+          const safeChunk = chunk.map(c => `'${c.replace(/'/g, "''")}'`);
+          const filter = `codigo IN (${safeChunk.join(',')})`;
+
           const url = `http://localhost:8080/geoserver/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=${encodeURIComponent(filter)}`;
 
           const res = await fetch(url);
@@ -364,14 +356,18 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
             const features = new GeoJSON().readFeatures(data, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
             features.forEach(f => {
               const codigoF = f.get('codigo') || f.get('CODIGO');
+              // Buscamos el estado correspondiente en los datos traídos de Supabase
               const d = nichosDB.find(n => n.codigo === codigoF);
-              if (d) f.set('estado', d.estado);
+              if (d) {
+                // Normalizar para el estilo
+                f.set('estado', d.estado);
+              }
             });
             capaResaltadoEstadosRef.current.addFeatures(features);
           }
         }
       } catch (e) {
-        console.error("Error pìntado:", e);
+        console.error("Error pintado:", e);
       }
     };
 

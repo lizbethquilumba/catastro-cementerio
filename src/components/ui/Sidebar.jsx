@@ -43,13 +43,84 @@ const Sidebar = ({
   const [mensajeBusqueda, setMensajeBusqueda] = useState(null);
 
   // --- LÓGICA DE SIMBOLOGÍA (COLORES) ---
+  // --- LÓGICA DE SIMBOLOGÍA (COLORES) ---
   const toggleEstado = (valor) => {
-    // Comportamiento de "Radio Button": solo uno a la vez.
-    if (estadosSeleccionados.includes(valor)) {
-      alCambiarEstados([]); // Si clicamos el que ya está, lo quitamos
+    // Grupo Superior: Ocupado / Disponible. Exclusivo entre ellos, pero respeta los de abajo.
+    const grupoTop = ['Ocupado', 'Disponible'];
+
+    // 1. Quitar otros del mismo grupo top
+    let nuevos = estadosSeleccionados.filter(e => !grupoTop.includes(e));
+
+    // 2. LOGICA DE SELECCION / DESELECCION
+    if (!estadosSeleccionados.includes(valor)) {
+      // --- SELECCIONAR (Toggle ON) ---
+      // Agregamos el nuevo valor Top
+      nuevos.push(valor);
+
+      // Si cambio de Ocupado a Disponible, debo limpiar los hijos de Ocupado (Malo, Mantenimiento)
+      // Si cambio de Disponible a Ocupado, debo limpiar los hijos de Disponible (Bueno)
+      // Como ya limpié 'grupoTop' en el paso 1, solo quedan los Bottom del estado anterior.
+      // Debemos verificar si son compatibles con el NUEVO valor.
+
+      if (valor === 'Ocupado') {
+        // Nuevo es Ocupado -> Eliminar incompatibles (Bueno)
+        nuevos = nuevos.filter(e => e !== 'Estado_Bueno');
+      } else if (valor === 'Disponible') {
+        // Nuevo es Disponible -> Eliminar incompatibles (Malo, Mantenimiento)
+        nuevos = nuevos.filter(e => !['Estado_Malo', 'Mantenimiento'].includes(e));
+      }
+
     } else {
-      alCambiarEstados([valor]); // Si es nuevo, reemplazamos todo lo anterior solo con este
+      // --- DESELECCIONAR (Toggle OFF) ---
+      // Si quito el check de arriba, debo limpiar TODOS sus hijos dependientes
+      if (valor === 'Ocupado') {
+        nuevos = nuevos.filter(e => !['Estado_Malo', 'Mantenimiento'].includes(e));
+      } else if (valor === 'Disponible') {
+        nuevos = nuevos.filter(e => e !== 'Estado_Bueno');
+      }
     }
+    alCambiarEstados(nuevos);
+  };
+
+  const toggleEstadoFisico = (valor) => {
+    // Grupo Inferior: Estado_Bueno / Estado_Malo / Mantenimiento. Exclusivo entre ellos.
+    const grupoFisico = ['Estado_Bueno', 'Estado_Malo', 'Mantenimiento'];
+
+    // 1. Quitar otros del grupo fisico (EXCLUSIVIDAD)
+    let nuevos = estadosSeleccionados.filter(e => !grupoFisico.includes(e));
+
+    // 2. Agregar el nuevo si no estaba (TOGGLE)
+    if (!estadosSeleccionados.includes(valor)) {
+      nuevos.push(valor);
+    }
+
+    // 3. SINCRONIZACIÓN CON GRUPO TOP (Permanencia visual)
+    // El usuario quiere que "Ocupado" permanezca seleccionado si elige opciones de abajo.
+    // Forzamos "Ocupado" o "Disponible" arriba según lo que se elija abajo.
+
+    const grupoTop = ['Ocupado', 'Disponible'];
+    nuevos = nuevos.filter(e => !grupoTop.includes(e)); // Limpiamos Top actual para re-asignar el correcto
+
+    if (valor === 'Estado_Malo' || valor === 'Mantenimiento') {
+      // Si elige Malo/Mantenimiento -> Son 'Ocupado'
+      nuevos.push('Ocupado');
+    } else if (valor === 'Estado_Bueno') {
+      // Si elige Bueno -> Es 'Disponible' (Libre)
+      nuevos.push('Disponible');
+    } else {
+      // Si se deseleccionó todo abajo (nuevos no tiene bottom actual),
+      // ¿Qué hacemos con Top?
+      // Podríamos dejar el Top anterior, pero aquí lo borramos arriba.
+      // Si el usuario hace click para deseleccionar, 'nuevos' ya no tiene 'valor'.
+      // Entonces no entra en los if anteriores.
+      // En este caso, 'nuevos' queda vacío tanto de Bottom como de Top.
+      // Si queremos que "Selecciono ocupado..." permanezca, al quitar abajo, ocupado debería quedarse?
+      // Es un borde raro. Si quito abajo, quizás quiero ver "Ocupado" genérico?
+      // Pero el mapa no muestra nada con solo "Ocupado".
+      // Así que si quito abajo, mejor quitar Top visualmente también para indicar "Nada seleccionado".
+    }
+
+    alCambiarEstados(nuevos); // APLICAR CAMBIOS (Esta línea faltaba)
   };
 
   // --- CARGAR DATOS INICIALES (BLOQUES) ---
@@ -559,27 +630,72 @@ const Sidebar = ({
         </section>
 
         <section className="sidebar-section">
-          <h3 className="section-title"><Info size={14} /> Simbología de Estados</h3>
-          <div className="status-card">
-            <label className={`status-item ${estadosSeleccionados.includes('Disponible') ? 'active' : ''}`}>
-              <input type="checkbox" checked={estadosSeleccionados.includes('Disponible')} onChange={() => toggleEstado('Disponible')} className="hidden-checkbox" />
-              <div className="status-color-box" style={{ backgroundColor: estadosSeleccionados.includes('Disponible') ? '#22c55e' : 'transparent', borderColor: '#22c55e' }}>
-                {estadosSeleccionados.includes('Disponible') && <Check size={12} color="white" strokeWidth={3} />}
+          <h3 className="section-title"><Info size={14} /> Filtrar nichos Disponibilidad</h3>
+
+          <div className="availability-toggles" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+            <label className="toggle-box"
+              style={{
+                flex: 1, padding: '0.5rem',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                borderRadius: '8px',
+                backgroundColor: 'transparent'
+              }}>
+              <div style={{ width: '28px', height: '28px', border: '3px solid #ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '6px' }}>
+                {estadosSeleccionados.includes('Ocupado') && <div style={{ width: '18px', height: '18px', backgroundColor: '#ef4444', borderRadius: '4px' }} />}
               </div>
-              <span className="status-text">Libre / Disponible</span>
+              <input
+                type="checkbox"
+                className="hidden-checkbox"
+                checked={estadosSeleccionados.includes('Ocupado')}
+                onChange={() => toggleEstado('Ocupado')}
+              />
+              <span className="toggle-text">Ocupado</span>
             </label>
-            <label className={`status-item ${estadosSeleccionados.includes('Ocupado') ? 'active' : ''}`}>
-              <input type="checkbox" checked={estadosSeleccionados.includes('Ocupado')} onChange={() => toggleEstado('Ocupado')} className="hidden-checkbox" />
-              <div className="status-color-box" style={{ backgroundColor: estadosSeleccionados.includes('Ocupado') ? '#ef4444' : 'transparent', borderColor: '#ef4444' }}>
-                {estadosSeleccionados.includes('Ocupado') && <Check size={12} color="white" strokeWidth={3} />}
+
+            <label className="toggle-box"
+              style={{
+                flex: 1, padding: '0.5rem',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                borderRadius: '8px',
+                backgroundColor: 'transparent'
+              }}>
+              <div style={{ width: '28px', height: '28px', border: '3px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '6px' }}>
+                {estadosSeleccionados.includes('Disponible') && <div style={{ width: '18px', height: '18px', backgroundColor: '#22c55e', borderRadius: '4px' }} />}
               </div>
-              <span className="status-text">Ocupado</span>
+              <input
+                type="checkbox"
+                className="hidden-checkbox"
+                checked={estadosSeleccionados.includes('Disponible')}
+                onChange={() => toggleEstado('Disponible')}
+              />
+              <span className="toggle-text">Libre</span>
             </label>
-            <label className={`status-item ${estadosSeleccionados.includes('Mantenimiento') ? 'active' : ''}`}>
-              <input type="checkbox" checked={estadosSeleccionados.includes('Mantenimiento')} onChange={() => toggleEstado('Mantenimiento')} className="hidden-checkbox" />
-              <div className="status-color-box" style={{ backgroundColor: estadosSeleccionados.includes('Mantenimiento') ? '#fbbf24' : 'transparent', borderColor: '#fbbf24' }}>
-                {estadosSeleccionados.includes('Mantenimiento') && <Check size={12} color="white" strokeWidth={3} />}
+          </div>
+
+          <h3 className="section-title">Filtrar por estado físico</h3>
+          <div className="status-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+
+            <label className={`status-item ${estadosSeleccionados.includes('Estado_Bueno') ? 'active' : ''}`} style={{ opacity: estadosSeleccionados.includes('Disponible') ? 1 : 0.5, pointerEvents: estadosSeleccionados.includes('Disponible') ? 'auto' : 'none' }}>
+              <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #22c55e', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {estadosSeleccionados.includes('Estado_Bueno') && <div style={{ width: '14px', height: '14px', backgroundColor: '#22c55e', borderRadius: '2px' }} />}
               </div>
+              <input type="checkbox" checked={estadosSeleccionados.includes('Estado_Bueno')} onChange={() => toggleEstadoFisico('Estado_Bueno')} className="hidden-checkbox" disabled={!estadosSeleccionados.includes('Disponible')} />
+              <span className="status-text">Buenas condiciones</span>
+            </label>
+
+            <label className={`status-item ${estadosSeleccionados.includes('Estado_Malo') ? 'active' : ''}`} style={{ opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5, pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none' }}>
+              <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #ef4444', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {estadosSeleccionados.includes('Estado_Malo') && <div style={{ width: '14px', height: '14px', backgroundColor: '#ef4444', borderRadius: '2px' }} />}
+              </div>
+              <input type="checkbox" checked={estadosSeleccionados.includes('Estado_Malo')} onChange={() => toggleEstadoFisico('Estado_Malo')} className="hidden-checkbox" disabled={!estadosSeleccionados.includes('Ocupado')} />
+              <span className="status-text">Malas condiciones</span>
+            </label>
+
+            <label className={`status-item ${estadosSeleccionados.includes('Mantenimiento') ? 'active' : ''}`} style={{ opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5, pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none' }}>
+              <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #fbbf24', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {estadosSeleccionados.includes('Mantenimiento') && <div style={{ width: '14px', height: '14px', backgroundColor: '#fbbf24', borderRadius: '2px' }} />}
+              </div>
+              <input type="checkbox" checked={estadosSeleccionados.includes('Mantenimiento')} onChange={() => toggleEstadoFisico('Mantenimiento')} className="hidden-checkbox" disabled={!estadosSeleccionados.includes('Ocupado')} />
               <span className="status-text">Mantenimiento</span>
             </label>
           </div>

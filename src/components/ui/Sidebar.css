@@ -88,7 +88,30 @@
     border: 1px solid #e2e8f0;
     background-color: #f8fafc;
     font-size: 0.875rem;
+    font-family: inherit;
+    /* Ensure it matches the rest of the app */
     transition: all 0.2s;
+}
+
+.toggle-text {
+    font-size: 0.875rem;
+    color: var(--text-main);
+    font-weight: 400;
+}
+
+.status-text {
+    font-size: 0.875rem;
+    /* Match dropdown size */
+    color: var(--text-main);
+    font-weight: 400;
+    /* Normal weight */
+}
+
+/* Cuando está activo (Checked) */
+.active .status-text {
+    color: var(--text-main);
+    font-weight: 400;
+    /* Keep it normal even when active if desired, or 500 */
 }
 
 .form-input:focus,
@@ -307,11 +330,7 @@
     flex-shrink: 0;
 }
 
-.status-text {
-    font-size: 0.9rem;
-    color: var(--text-main);
-    font-weight: 500;
-}
+
 
 /* Cuando está activo (Checked) */
 .active .status-text {
