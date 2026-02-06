@@ -6,6 +6,10 @@ import { GeoJSON } from 'ol/format';
 import { fromLonLat } from 'ol/proj';
 import './MapaCementerio.css';
 
+// --- CONFIGURACIÓN DEL SERVIDOR ---
+// Si reinicias el túnel, SOLO CAMBIA ESTA LÍNEA con el nuevo enlace:
+const GEOSERVER_URL = 'https://consumer-equity-fluid-reasonable.trycloudflare.com/geoserver';
+
 const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccionado, capasVisiblesEstado, estadosVisibles, alDeseleccionarNicho }) => {
 
   // 1. REFS Y ESTADOS
@@ -23,12 +27,11 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
 
   const capaResaltadoRef = useRef(null);
   const capaResaltadoBloqueRef = useRef(null);
-  const capaResaltadoSectorRef = useRef(null); // Ref para resaltar Sector
-  const capaResaltadoEstadosRef = useRef(null); // Nueva ref para el marcado masivo
+  const capaResaltadoSectorRef = useRef(null);
+  const capaResaltadoEstadosRef = useRef(null);
 
   const [datosPopup, setDatosPopup] = useState(null);
   const [cargando, setCargando] = useState(true);
-  const [notificacion, setNotificacion] = useState(null);
   const [etiquetaBloque, setEtiquetaBloque] = useState(null);
   const [inicializado, setInicializado] = useState(false);
 
@@ -40,7 +43,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         'typename': 'otavalo_cementerio:cementerio_general', 'outputFormat': 'application/json',
         'srsName': 'EPSG:4326', 'maxFeatures': '1'
       });
-      const respuesta = await fetch(`http://192.168.20.103:8080/geoserver/otavalo_cementerio/ows?${params.toString()}`);
+      // CORREGIDO: Uso de backticks y la variable GEOSERVER_URL
+      const respuesta = await fetch(`${GEOSERVER_URL}/wms?${params.toString()}`);
       if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
       const datosGeoJSON = await respuesta.json();
       const features = new GeoJSON().readFeatures(datosGeoJSON, {
@@ -101,17 +105,14 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
 
     let datosDifuntoFinal = null;
     if (props.codigo) {
-      // Intentamos buscar el nicho por código exacto
       let { data: nAdmin } = await supabase.from('nichos').select('id').eq('codigo', props.codigo).maybeSingle();
 
-      // Si no hay match exacto, intentamos un like (por si acaso haya espacios o diferencias menores)
       if (!nAdmin) {
         const { data: nLike } = await supabase.from('nichos').select('id').ilike('codigo', props.codigo).limit(1);
         if (nLike && nLike.length > 0) nAdmin = nLike[0];
       }
 
       if (nAdmin) {
-        // Buscamos TODOS los ocupantes actuales (sin fecha exhumación)
         const { data: rel } = await supabase
           .from('fallecido_nicho')
           .select(`fallecidos (nombres, apellidos, fecha_fallecimiento), socios (nombres, apellidos)`)
@@ -120,12 +121,11 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
           .order('created_at', { ascending: false });
 
         if (rel && rel.length > 0) {
-          datosDifuntoFinal = rel; // Guardamos el array completo
+          datosDifuntoFinal = rel;
         }
       }
     }
 
-    // Procesamos la lista de difuntos
     if (datosDifuntoFinal && Array.isArray(datosDifuntoFinal)) {
       datosFinales.difuntos = datosDifuntoFinal.map(d => {
         const nombreResponsable = d.socios
@@ -167,25 +167,26 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
 
       capaResaltadoRef.current = new VectorSource();
       capaResaltadoBloqueRef.current = new VectorSource();
-      capaResaltadoSectorRef.current = new VectorSource(); // Fuente para sector
+      capaResaltadoSectorRef.current = new VectorSource();
       capaResaltadoEstadosRef.current = new VectorSource();
 
       const extentCementerio = await obtenerExtentCementerio();
 
+      // CORREGIDO: Todas las capas usan ahora GEOSERVER_URL
       const capaCementerio = new TileLayer({
-        source: new TileWMS({ url: `http://localhost:8080/geoserver/wms`, params: { 'LAYERS': 'otavalo_cementerio:cementerio_general', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
+        source: new TileWMS({ url: `${GEOSERVER_URL}/wms`, params: { 'LAYERS': 'otavalo_cementerio:cementerio_general', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
         zIndex: 1, visible: true
       });
       const capaInfraestructura = new TileLayer({
-        source: new TileWMS({ url: `http://localhost:8080/geoserver/wms`, params: { 'LAYERS': 'otavalo_cementerio:infraestructura', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
+        source: new TileWMS({ url: `${GEOSERVER_URL}/wms`, params: { 'LAYERS': 'otavalo_cementerio:infraestructura', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
         zIndex: 2, visible: true
       });
       const capaBloques = new TileLayer({
-        source: new TileWMS({ url: `http://localhost:8080/geoserver/wms`, params: { 'LAYERS': 'otavalo_cementerio:bloques_geom', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
+        source: new TileWMS({ url: `${GEOSERVER_URL}/wms`, params: { 'LAYERS': 'otavalo_cementerio:bloques_geom', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
         zIndex: 3, visible: true
       });
       const capaNichos = new TileLayer({
-        source: new TileWMS({ url: `http://localhost:8080/geoserver/wms`, params: { 'LAYERS': 'otavalo_cementerio:nichos_geom', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
+        source: new TileWMS({ url: `${GEOSERVER_URL}/wms`, params: { 'LAYERS': 'otavalo_cementerio:nichos_geom', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
         zIndex: 4, visible: true
       });
 
@@ -199,7 +200,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         source: capaResaltadoBloqueRef.current, zIndex: 998,
         style: new Style({ stroke: new Stroke({ color: '#8B5CF6', width: 2 }), fill: new Fill({ color: 'rgba(139, 92, 246, 0.15)' }) })
       });
-      // Capa Vectorial para SECTOR (Violeta Suave)
       const capaVectorSector = new VectorLayer({
         source: capaResaltadoSectorRef.current, zIndex: 997,
         style: new Style({ stroke: new Stroke({ color: '#8B5CF6', width: 2.5 }), fill: new Fill({ color: 'rgba(139, 92, 246, 0.12)' }) })
@@ -250,7 +250,10 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         const url = source.getFeatureInfoUrl(evt.coordinate, nuevoMapa.getView().getResolution(), nuevoMapa.getView().getProjection(), { 'INFO_FORMAT': 'application/json', 'FEATURE_COUNT': 1 });
         if (url) {
           try {
-            const res = await fetch(url);
+            // CORREGIDO: Aseguramos que GetFeatureInfo use el dominio correcto si OpenLayers genera localhost
+            // Reemplazamos el dominio base por si OpenLayers usa el de la capa
+            const urlSegura = url.replace(/http:\/\/localhost:8080\/geoserver/gi, GEOSERVER_URL);
+            const res = await fetch(urlSegura);
             const data = await res.json();
             if (data.features && data.features.length > 0) {
               const feature = new GeoJSON().readFeature(data.features[0]);
@@ -286,7 +289,7 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
     if (c.nichos_geom) c.nichos_geom.setVisible(capasVisiblesEstado.nichos_geom);
   }, [capasVisiblesEstado, inicializado]);
 
-  // EFECTO DE MARCADO (Sincronizado con Supabase para datos siempre frescos)
+  // EFECTO DE MARCADO
   useEffect(() => {
     if (!inicializado || !capasRef.current.nichos_geom || !capaResaltadoEstadosRef.current) return;
 
@@ -302,10 +305,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
           return;
         }
 
-        // Normalizamos los estados seleccionados para coincidir con la base de datos
-        // Mapeo explícito de estados UI a estados DB
-        // NOTA: Los botones de arriba envían "Disponible" y "Ocupado", pero NO los mapeamos
-        // para que no pinten nada por sí solos. Solo pintamos cuando se eligen los de abajo.
         const mapeoEstados = {
           'Estado_Bueno': 'Disponible',
           'Estado_Malo': 'Ocupado',
@@ -313,18 +312,16 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         };
 
         const estadosNormalizados = estadosVisibles
-          .map(e => mapeoEstados[e]) // Solo mapeamos lo que está en el diccionario
-          .filter(Boolean); // Filtramos undefined (lo que venga de botones de arriba se ignora)
+          .map(e => mapeoEstados[e])
+          .filter(Boolean);
 
-        // Generamos variantes por si acaso (aunque idealmente la DB debería estar normalizada)
         const variantes = estadosNormalizados.flatMap(e => [e, e.toLowerCase(), e.toUpperCase(), e.charAt(0).toUpperCase() + e.slice(1).toLowerCase()]);
 
-        // Hacemos una ÚNICA consulta a la tabla 'nichos'
         const { data: nichosDB, error } = await supabase
           .from('nichos')
           .select('codigo, estado')
-          .in('estado', [...new Set(variantes)]) // Deduplicar variantes
-          .range(0, 2000); // Límite seguro, paginar si crece mucho
+          .in('estado', [...new Set(variantes)])
+          .range(0, 2000);
 
         if (error) {
           console.error("Error consultando nichos:", error);
@@ -337,16 +334,14 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         }
 
         const codigos = nichosDB.map(n => n.codigo);
-
-        // Dividimos en bloques para el WFS (Reducido a 50 para evitar URLs muy largas)
         const CHUNK_SIZE = 50;
         for (let i = 0; i < codigos.length; i += CHUNK_SIZE) {
           const chunk = codigos.slice(i, i + CHUNK_SIZE);
-          // Escapamos comillas simples en los códigos por seguridad
           const safeChunk = chunk.map(c => `'${c.replace(/'/g, "''")}'`);
           const filter = `codigo IN (${safeChunk.join(',')})`;
 
-          const url = `http://localhost:8080/geoserver/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=${encodeURIComponent(filter)}`;
+          // CORREGIDO: URL segura
+          const url = `${GEOSERVER_URL}/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=${encodeURIComponent(filter)}`;
 
           const res = await fetch(url);
           if (!res.ok) continue;
@@ -356,10 +351,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
             const features = new GeoJSON().readFeatures(data, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
             features.forEach(f => {
               const codigoF = f.get('codigo') || f.get('CODIGO');
-              // Buscamos el estado correspondiente en los datos traídos de Supabase
               const d = nichosDB.find(n => n.codigo === codigoF);
               if (d) {
-                // Normalizar para el estilo
                 f.set('estado', d.estado);
               }
             });
@@ -380,7 +373,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
     if (!inicializado || !mapaRef.current || !nichoCodigo) return;
 
     const doZoom = async () => {
-      const url = `http://localhost:8080/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=codigo='${nichoCodigo}'`;
+      // CORREGIDO: URL segura
+      const url = `${GEOSERVER_URL}/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=codigo='${nichoCodigo}'`;
       try {
         const r = await fetch(url);
         const d = await r.json();
@@ -400,8 +394,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
     doZoom();
   }, [nichoSeleccionado?.ts, inicializado]);
 
-
-
   // EFECTO SECTOR
   useEffect(() => {
     if (!inicializado || !mapaRef.current) return;
@@ -412,9 +404,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
     }
 
     const doZoomSector = async () => {
-      // Consultamos TODOS los bloques que pertenezcan a ese sector
-      // La capa es bloques_geom, columna sector
-      const url = `http://localhost:8080/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:bloques_geom&outputFormat=application/json&CQL_FILTER=sector='${sectorSeleccionado}'`;
+      // CORREGIDO: URL segura
+      const url = `${GEOSERVER_URL}/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:bloques_geom&outputFormat=application/json&CQL_FILTER=sector='${sectorSeleccionado}'`;
 
       try {
         const r = await fetch(url);
@@ -425,7 +416,6 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
           capaResaltadoSectorRef.current.clear();
           capaResaltadoSectorRef.current.addFeatures(features);
 
-          // Calcular extent total de todos los bloques
           const extent = features[0].getGeometry().getExtent();
           features.forEach(f => {
             const e = f.getGeometry().getExtent();
@@ -449,14 +439,13 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
       }
       return;
     }
-    // Si seleccionamos bloque específico, podríamos limpiar el sector o mantenerlo.
-    // Usuario pidió explícitamente: "una vez que selecciona el bloque ya se desmarque el sector"
     capaResaltadoSectorRef.current?.clear();
 
     setDatosPopup(null);
     overlayRef.current?.setPosition(undefined);
     const doZoomB = async () => {
-      const url = `http://localhost:8080/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:bloques_geom&outputFormat=application/json&CQL_FILTER=codigo='${bloqueSeleccionado.codigo}'`;
+      // CORREGIDO: URL segura
+      const url = `${GEOSERVER_URL}/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:bloques_geom&outputFormat=application/json&CQL_FILTER=codigo='${bloqueSeleccionado.codigo}'`;
       try {
         const r = await fetch(url); const d = await r.json();
         if (d.features?.length) {
