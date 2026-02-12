@@ -8,7 +8,7 @@ import './MapaCementerio.css';
 
 // --- CONFIGURACIÓN DEL SERVIDOR ---
 // Si reinicias el túnel, SOLO CAMBIA ESTA LÍNEA con el nuevo enlace:
-const GEOSERVER_URL = 'http://localhost:8080/geoserver/otavalo_cementerio/ows';
+const GEOSERVER_URL = 'http://localhost:8080/geoserver/otavalo_cementerio';
 
 const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccionado, capasVisiblesEstado, estadosVisibles, alDeseleccionarNicho }) => {
 
@@ -34,62 +34,59 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
   const [cargando, setCargando] = useState(true);
   const [etiquetaBloque, setEtiquetaBloque] = useState(null);
   const [inicializado, setInicializado] = useState(false);
+  // modoSatelite eliminado
 
   // --- FUNCIÓN AUXILIAR: Obtener Extent ---
-  const obtenerExtentCementerio = async () => {
-    try {
-      const params = new URLSearchParams({
-        service: 'WFS', 'version': '1.0.0', 'request': 'GetFeature',
-        'typename': 'otavalo_cementerio:cementerio_general', 'outputFormat': 'application/json',
-        'srsName': 'EPSG:4326', 'maxFeatures': '1'
-      });
-      // CORREGIDO: Uso de backticks y la variable GEOSERVER_URL
-      const respuesta = await fetch(`${GEOSERVER_URL}/wms?${params.toString()}`);
-      if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
-      const datosGeoJSON = await respuesta.json();
-      const features = new GeoJSON().readFeatures(datosGeoJSON, {
-        dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857'
-      });
-      if (features.length > 0) return features[0].getGeometry()?.getExtent();
-    } catch (e) { /* ignore */ }
-    return null;
-  };
+
 
   // --- FUNCIÓN AUXILIAR DE DATOS (REUTILIZABLE) ---
   const obtenerDatosCompletoNicho = async (props) => {
     const datosFinales = { ...props };
     let bloqueEncontrado = false;
 
+    // 1. Primero intentar obtener datos ADMINISTRATIVOS (prioridad)
+    // Esto permite que si un nicho está asignado manualmente a otro bloque en la BD, se respete esa asignación
+    // sobre la geometría espacial.
     if (props.codigo) {
-      const matchCodigo = props.codigo.match(/^B(\d+)-/i);
-      if (matchCodigo && matchCodigo[1]) {
-        const numeroBloque = matchCodigo[1];
-        const codigoBloqueBuscado = `B-${numeroBloque.padStart(2, '0')}`;
-        const { data: bGeom } = await supabase
-          .from('bloques_geom')
-          .select('nombre, sector')
-          .eq('codigo', codigoBloqueBuscado)
-          .maybeSingle();
-
-        if (bGeom) {
-          datosFinales.bloque = bGeom.nombre;
-          datosFinales.sector = bGeom.sector;
-          bloqueEncontrado = true;
-        }
-      }
-    }
-
-    if (!bloqueEncontrado && props.codigo) {
       const { data: dbNicho } = await supabase
         .from('nichos')
-        .select('bloques(nombre, bloques_geom(sector))')
+        .select('bloques(nombre, codigo, bloques_geom(sector))')
         .eq('codigo', props.codigo)
         .maybeSingle();
 
       if (dbNicho && dbNicho.bloques) {
-        datosFinales.bloque = dbNicho.bloques.nombre;
+        datosFinales.bloque = `${dbNicho.bloques.nombre} (${dbNicho.bloques.codigo || 'S/C'})`;
         if (dbNicho.bloques.bloques_geom) {
           datosFinales.sector = dbNicho.bloques.bloques_geom.sector;
+        }
+        bloqueEncontrado = true;
+      }
+    }
+
+    // 2. Si no se encontró administrativamente O si queremos complementar, buscamos geometría
+    // Pero si ya encontramos bloque (admin), NO sobrescribimos con geometría
+    if (props.codigo) {
+      const { data: nichoGeom } = await supabase
+        .from('nichos_geom')
+        .select('bloques_geom_id')
+        .eq('codigo', props.codigo)
+        .maybeSingle();
+
+      if (nichoGeom && nichoGeom.bloques_geom_id) {
+        // Si ya tenemos bloque administrativo, ¿lo ignoramos? 
+        // Sí, la premisa es que lo administrativo corrige a lo espacial.
+        if (!bloqueEncontrado) {
+          const { data: bGeom } = await supabase
+            .from('bloques_geom')
+            .select('nombre, sector, codigo')
+            .eq('id', nichoGeom.bloques_geom_id)
+            .maybeSingle();
+
+          if (bGeom) {
+            datosFinales.bloque = `${bGeom.nombre} (${bGeom.codigo})`;
+            datosFinales.sector = bGeom.sector;
+            bloqueEncontrado = true;
+          }
         }
       }
     }
@@ -163,6 +160,7 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
       const TileWMS = (await import('ol/source/TileWMS')).default;
       const VectorSource = (await import('ol/source/Vector')).default;
       const OSM = (await import('ol/source/OSM')).default;
+      // XYZ eliminado
       const { Style, Stroke, Fill } = await import('ol/style');
 
       capaResaltadoRef.current = new VectorSource();
@@ -170,11 +168,23 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
       capaResaltadoSectorRef.current = new VectorSource();
       capaResaltadoEstadosRef.current = new VectorSource();
 
-      const extentCementerio = await obtenerExtentCementerio();
 
-      // CORREGIDO: Todas las capas usan ahora GEOSERVER_URL
+
+      // CAPAS BASE
+      // Solo OSM
+      const capaOSM = new TileLayer({ source: new OSM(), zIndex: 0, visible: true });
+
+      // SE ELIMINÓ CAPA SATELITE
+
+
+      // CAPAS WMS (todas usan GEOSERVER_URL)
+      // Ajuste: Cargar cementerio_general como WMS
       const capaCementerio = new TileLayer({
-        source: new TileWMS({ url: `${GEOSERVER_URL}/wms`, params: { 'LAYERS': 'otavalo_cementerio:cementerio_general', 'TILED': true, 'TRANSPARENT': true }, serverType: 'geoserver' }),
+        source: new TileWMS({
+          url: `${GEOSERVER_URL}/wms`,
+          params: { 'LAYERS': 'otavalo_cementerio:cementerio_general', 'TILED': true, 'TRANSPARENT': true },
+          serverType: 'geoserver'
+        }),
         zIndex: 1, visible: true
       });
       const capaInfraestructura = new TileLayer({
@@ -190,7 +200,12 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         zIndex: 4, visible: true
       });
 
-      capasRef.current = { cementerio_general: capaCementerio, infraestructura: capaInfraestructura, bloques_geom: capaBloques, nichos_geom: capaNichos };
+      Object.assign(capasRef.current, {
+        cementerio_general: capaCementerio,
+        infraestructura: capaInfraestructura,
+        bloques_geom: capaBloques,
+        nichos_geom: capaNichos
+      });
 
       const capaVector = new VectorLayer({
         source: capaResaltadoRef.current, zIndex: 999,
@@ -210,10 +225,12 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
         style: (feature) => {
           const est = (feature.get('estado') || feature.get('ESTADO') || feature.get('Estado') || '').toLowerCase();
           const colors = {
-            ocupado: { stroke: '#ef4444', fill: 'rgba(239, 68, 68, 0.7)' },
+            ocupado: { stroke: '#60a5fa', fill: 'rgba(96, 165, 250, 0.7)' },
             disponible: { stroke: '#22c55e', fill: 'rgba(34, 197, 94, 0.7)' },
             mantenimiento: { stroke: '#fbbf24', fill: 'rgba(251, 191, 36, 0.7)' },
-            reservado: { stroke: '#fbbf24', fill: 'rgba(251, 191, 36, 0.7)' }
+            reservado: { stroke: '#fbbf24', fill: 'rgba(251, 191, 36, 0.7)' },
+            malas: { stroke: '#991b1b', fill: 'rgba(153, 27, 27, 0.8)' }, // Rojo oscuro para malas
+            malo: { stroke: '#991b1b', fill: 'rgba(153, 27, 27, 0.8)' }
           };
           const c = colors[est] || { stroke: '#94a3b8', fill: 'rgba(148, 163, 184, 0.2)' };
           return new Style({
@@ -225,22 +242,34 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
 
       const overlay = new Overlay({
         element: popupRef.current,
-        autoPan: { animation: { duration: 300 }, margin: 20 },
+        autoPan: false,
         positioning: 'bottom-center', stopEvent: false, offset: [0, -10]
       });
       overlayRef.current = overlay;
 
+      const { defaults: defaultControls } = await import('ol/control');
+
       const nuevoMapa = new Map({
         target: mapElement.current,
-        layers: [new TileLayer({ source: new OSM(), zIndex: 0 }), capaCementerio, capaInfraestructura, capaBloques, capaNichos, capaVectorEstados, capaVectorSector, capaVectorBloque, capaVector],
+        layers: [capaOSM, capaCementerio, capaInfraestructura, capaBloques, capaNichos, capaVectorEstados, capaVectorSector, capaVectorBloque, capaVector],
         overlays: [overlay],
-        view: new View({ center: fromLonLat([-78.271892, -0.234494]), zoom: 18, minZoom: 16, maxZoom: 22 }),
+        controls: defaultControls({
+          rotateOptions: { autoHide: false, tipLabel: 'Restablecer Norte' }
+        }),
+        view: new View({
+          center: fromLonLat([-78.26549, 0.21908]), // Coordenadas exactas Cementerio Otavalo
+          zoom: 19,
+          minZoom: 16,
+          maxZoom: 22,
+          rotation: 0.34 // Ajuste fino a la izquierda
+        }),
       });
       mapaRef.current = nuevoMapa;
 
-      if (extentCementerio) {
-        nuevoMapa.getView().fit(extentCementerio, { padding: [50, 50, 50, 50], maxZoom: 19 });
-      }
+
+      // SE ELIMINÓ: Ajuste automático al extent que causaba error "Cannot fit empty extent"
+      // debido a problemas con la proyección de la capa cementerio_general en Geoserver.
+      // Ya estamos centrando manualmente en las coordenadas correctas.
 
       nuevoMapa.on('singleclick', async (evt) => {
         setDatosPopup(null);
@@ -258,10 +287,23 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
             if (data.features && data.features.length > 0) {
               const feature = new GeoJSON().readFeature(data.features[0]);
               capaResaltadoRef.current.clear(); capaResaltadoRef.current.addFeature(feature);
+
               const props = data.features[0].properties;
               const datosFinales = await obtenerDatosCompletoNicho(props);
               setDatosPopup(datosFinales);
               if (overlayRef.current) overlayRef.current.setPosition(evt.coordinate);
+
+              // AGREGADO: Zoom suave al hacer clic aka "poquito zoom"
+              const view = nuevoMapa.getView();
+              const currentZoom = view.getZoom();
+              if (currentZoom < 22) {
+                view.animate({
+                  zoom: currentZoom + 1,
+                  duration: 300,
+                  anchor: evt.coordinate // Mantiene el punto clicado fijo bajo el mouse
+                });
+              }
+
             } else {
               capaResaltadoRef.current.clear();
             }
@@ -289,6 +331,8 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
     if (c.nichos_geom) c.nichos_geom.setVisible(capasVisiblesEstado.nichos_geom);
   }, [capasVisiblesEstado, inicializado]);
 
+  // EFECTO CAMBIO MAPA BASE ELIMINADO
+
   // EFECTO DE MARCADO
   useEffect(() => {
     if (!inicializado || !capasRef.current.nichos_geom || !capaResaltadoEstadosRef.current) return;
@@ -305,22 +349,59 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
           return;
         }
 
-        const mapeoEstados = {
-          'Estado_Bueno': 'Disponible',
-          'Estado_Malo': 'Ocupado',
-          'Mantenimiento': 'Mantenimiento'
-        };
+        const especificos = ['Estado_Bueno', 'Estado_Malo', 'Mantenimiento'];
+        const hayEspecificos = estadosVisibles.some(e => especificos.includes(e));
+        const verLibres = estadosVisibles.includes('Disponible');
 
-        const estadosNormalizados = estadosVisibles
-          .map(e => mapeoEstados[e])
-          .filter(Boolean);
+        // Si SOLO está 'Ocupado' y nada más, no mostramos nada aún (pedido del usuario)
+        if (estadosVisibles.length === 1 && estadosVisibles.includes('Ocupado')) {
+          capaResaltadoEstadosRef.current.clear();
+          return;
+        }
 
-        const variantes = estadosNormalizados.flatMap(e => [e, e.toLowerCase(), e.toUpperCase(), e.charAt(0).toUpperCase() + e.slice(1).toLowerCase()]);
+        let filtrosOR = [];
+
+        // 1. Manejo de 'Libre' (Disponible) -> Usualmente nichos sin dueño
+        if (verLibres) {
+          filtrosOR.push(`socio_id.is.null`);
+        }
+
+        // 2. Manejo de estados físicos (Sub-filtros de Ocupado)
+        if (hayEspecificos) {
+          // Lógica aclarada: 
+          // Ocupado + Disponible(true) = Buenas
+          // Ocupado + Disponible(false) = Malas
+
+          if (estadosVisibles.includes('Estado_Bueno')) {
+            // "Buenas condiciones": ocupado AND disponible=true
+            // Supabase .or() filter column logic can be complex for AND across columns.
+            // We'll fetch all 'ocupado' and filter client-side if needed, 
+            // but let's try to be as specific as possible in the OR string if they allow complex expressions.
+            // Simplified: Fetch all and filter client side.
+            filtrosOR.push(`estado.ilike.ocupado`);
+          }
+          if (estadosVisibles.includes('Estado_Malo')) {
+            // "Malas condiciones": ocupado AND disponible=false
+            if (!filtrosOR.includes(`estado.ilike.ocupado`)) {
+              filtrosOR.push(`estado.ilike.ocupado`);
+            }
+          }
+          if (estadosVisibles.includes('Mantenimiento')) {
+            filtrosOR.push(`estado.ilike.mantenimiento`);
+          }
+        }
+
+        if (filtrosOR.length === 0) {
+          capaResaltadoEstadosRef.current.clear();
+          return;
+        }
+
+        const queryOR = filtrosOR.join(',');
 
         const { data: nichosDB, error } = await supabase
           .from('nichos')
-          .select('codigo, estado')
-          .in('estado', [...new Set(variantes)])
+          .select('codigo, estado, disponible, socio_id')
+          .or(queryOR)
           .range(0, 2000);
 
         if (error) {
@@ -333,14 +414,37 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
           return;
         }
 
-        const codigos = nichosDB.map(n => n.codigo);
+        // FILTRADO CLIENT-SIDE para aplicar las reglas de AND (Buenas vs Malas)
+        const nichosFiltrados = nichosDB.filter(n => {
+          // Si pedimos Libres
+          if (verLibres && n.socio_id === null) return true;
+
+          // Si pedimos Mantenimiento
+          if (estadosVisibles.includes('Mantenimiento') && n.estado?.toLowerCase() === 'mantenimiento') return true;
+
+          // Si pedimos Ocupados - Buenas
+          if (estadosVisibles.includes('Estado_Bueno') &&
+            n.estado?.toLowerCase() === 'ocupado' && n.disponible === true) return true;
+
+          // Si pedimos Ocupados - Malas
+          if (estadosVisibles.includes('Estado_Malo') &&
+            n.estado?.toLowerCase() === 'ocupado' && n.disponible === false) return true;
+
+          return false;
+        });
+
+        if (nichosFiltrados.length === 0) {
+          capaResaltadoEstadosRef.current.clear();
+          return;
+        }
+
+        const codigos = nichosFiltrados.map(n => n.codigo);
         const CHUNK_SIZE = 50;
         for (let i = 0; i < codigos.length; i += CHUNK_SIZE) {
           const chunk = codigos.slice(i, i + CHUNK_SIZE);
           const safeChunk = chunk.map(c => `'${c.replace(/'/g, "''")}'`);
           const filter = `codigo IN (${safeChunk.join(',')})`;
 
-          // CORREGIDO: URL segura
           const url = `${GEOSERVER_URL}/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=otavalo_cementerio:nichos_geom&outputFormat=application/json&CQL_FILTER=${encodeURIComponent(filter)}`;
 
           const res = await fetch(url);
@@ -351,9 +455,20 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
             const features = new GeoJSON().readFeatures(data, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
             features.forEach(f => {
               const codigoF = f.get('codigo') || f.get('CODIGO');
-              const d = nichosDB.find(n => n.codigo === codigoF);
+              const d = nichosFiltrados.find(n => n.codigo === codigoF);
               if (d) {
-                f.set('estado', d.estado);
+                let colorKey = d.estado?.toLowerCase() || '';
+
+                // Mapeo dinámico de color según las nuevas reglas
+                if (d.estado?.toLowerCase() === 'mantenimiento') {
+                  colorKey = 'mantenimiento'; // Prioridad: Mantenimiento (Amarillo)
+                } else if (d.socio_id === null) {
+                  colorKey = 'disponible'; // Libre (Verde)
+                } else if (d.estado?.toLowerCase() === 'ocupado') {
+                  colorKey = d.disponible ? 'ocupado' : 'malas'; // Buenas (Rojo) vs Malas (Rojo oscuro)
+                }
+
+                f.set('estado', colorKey);
               }
             });
             capaResaltadoEstadosRef.current.addFeatures(features);
@@ -462,6 +577,23 @@ const MapaCementerio = ({ nichoSeleccionado, bloqueSeleccionado, sectorSeleccion
   return (
     <div className="mapa-cementerio-container">
       {etiquetaBloque && <div className="block-label"><span>📍</span><span>Bloque: {etiquetaBloque}</span></div>}
+
+      {/* Controles de Rotación Manual */}
+      <div className="map-rotation-controls">
+        <button onClick={() => {
+          if (mapaRef.current) {
+            const view = mapaRef.current.getView();
+            view.animate({ rotation: view.getRotation() - Math.PI / 4, duration: 300 });
+          }
+        }} className="rotation-btn" title="Rotar Izquierda">↺</button>
+        <button onClick={() => {
+          if (mapaRef.current) {
+            const view = mapaRef.current.getView();
+            view.animate({ rotation: view.getRotation() + Math.PI / 4, duration: 300 });
+          }
+        }} className="rotation-btn" title="Rotar Derecha">↻</button>
+      </div>
+
       {cargando && <div className="map-loader"><div className="spinner" /><p>Cargando mapa...</p></div>}
       <div ref={mapElement} className="mapa-cementerio-mapa" />
       <div ref={popupRef} className="map-popup" style={{ display: datosPopup ? 'block' : 'none' }}>

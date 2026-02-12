@@ -45,39 +45,44 @@ const Sidebar = ({
   // --- LÓGICA DE SIMBOLOGÍA (COLORES) ---
   // --- LÓGICA DE SIMBOLOGÍA (COLORES) ---
   const toggleEstado = (valor) => {
-    // Grupo Superior: Ocupado / Disponible. Exclusivo entre ellos, pero respeta los de abajo.
+    // Grupo Superior: Ocupado / Disponible. Exclusivo entre ellos.
     const grupoTop = ['Ocupado', 'Disponible'];
 
-    // 1. Quitar otros del mismo grupo top
+    // 1. Quitar otros del mismo grupo top (Exclusividad Top)
     let nuevos = estadosSeleccionados.filter(e => !grupoTop.includes(e));
 
-    // 2. LOGICA DE SELECCION / DESELECCION
+    // 2. Lógica de selección
     if (!estadosSeleccionados.includes(valor)) {
       // --- SELECCIONAR (Toggle ON) ---
-      // Agregamos el nuevo valor Top
       nuevos.push(valor);
 
-      // Si cambio de Ocupado a Disponible, debo limpiar los hijos de Ocupado (Malo, Mantenimiento)
-      // Si cambio de Disponible a Ocupado, debo limpiar los hijos de Disponible (Bueno)
-      // Como ya limpié 'grupoTop' en el paso 1, solo quedan los Bottom del estado anterior.
-      // Debemos verificar si son compatibles con el NUEVO valor.
-
-      if (valor === 'Ocupado') {
-        // Nuevo es Ocupado -> Eliminar incompatibles (Bueno)
-        nuevos = nuevos.filter(e => e !== 'Estado_Bueno');
-      } else if (valor === 'Disponible') {
-        // Nuevo es Disponible -> Eliminar incompatibles (Malo, Mantenimiento)
-        nuevos = nuevos.filter(e => !['Estado_Malo', 'Mantenimiento'].includes(e));
+      if (valor === 'Disponible') {
+        // Si selecciono LIBRE, limpio cualquier filtro de estado físico
+        // "Cuando haga click en libre ya debe de mostrarme los nichos libres los filtros de abajo no tiene nada que ver"
+        nuevos = nuevos.filter(e => !['Estado_Bueno', 'Estado_Malo', 'Mantenimiento'].includes(e));
+      } else if (valor === 'Ocupado') {
+        // Si selecciono OCUPADO, por defecto no seleccionamos ningún estado físico específico
+        // o mantenemos los que estaban? (El usuario dice "permita seleccionar los 3")
+        // Al NO filtrar 'Estado_Bueno' etc, permitimos que si estaban seleccionados, sigan (aunque abajo reseteamos si era Disponible)
+        // Pero como venimos de un estado donde quizás estaba 'Disponible', los limpiamos por seguridad para empezar limpio?
+        // Mejor dejar limpio para que el usuario elija. O si ya había uno seleccionado, se mantiene?
+        // En la lógica anterior 'nuevos' ya filtra grupoTop, pero preserva los físicos.
+        // Si estaba en 'Disponible', no tenía físicos (por la regla de abajo).
+        // Si estaba en 'Ocupado' y re-clickeo, es deselección.
+        // Así que aquí es cambio directo de Disponible -> Ocupado:
+        // 'nuevos' trae los físicos anteriores? Si venía de Disponible, no debería tener.
       }
 
     } else {
       // --- DESELECCIONAR (Toggle OFF) ---
-      // Si quito el check de arriba, debo limpiar TODOS sus hijos dependientes
+      // Si quito el check, limpio también los dependientes si es Ocupado?
+      // O solo quito el Top?
+      // "Si selecciono ocupado me permita seleccionar los 3". Si quito ocupado, deberían quitarse los 3?
+      // Generalmente sí, para no quedar con "Malas condiciones" pero sin "Ocupado".
       if (valor === 'Ocupado') {
-        nuevos = nuevos.filter(e => !['Estado_Malo', 'Mantenimiento'].includes(e));
-      } else if (valor === 'Disponible') {
-        nuevos = nuevos.filter(e => e !== 'Estado_Bueno');
+        nuevos = nuevos.filter(e => !['Estado_Bueno', 'Estado_Malo', 'Mantenimiento'].includes(e));
       }
+      // Si quito Disponible, no hay dependientes que limpiar.
     }
     alCambiarEstados(nuevos);
   };
@@ -86,41 +91,25 @@ const Sidebar = ({
     // Grupo Inferior: Estado_Bueno / Estado_Malo / Mantenimiento. Exclusivo entre ellos.
     const grupoFisico = ['Estado_Bueno', 'Estado_Malo', 'Mantenimiento'];
 
-    // 1. Quitar otros del grupo fisico (EXCLUSIVIDAD)
+    // 1. Quitar otros del grupo fisico (EXCLUSIVIDAD - "solo uno a la vez")
     let nuevos = estadosSeleccionados.filter(e => !grupoFisico.includes(e));
 
-    // 2. Agregar el nuevo si no estaba (TOGGLE)
+    // 2. Toggle ON/OFF
     if (!estadosSeleccionados.includes(valor)) {
       nuevos.push(valor);
+
+      // 3. Implicaciones hacia arriba
+      // Si selecciono cualquier estado físico, DEBE estar seleccionado 'Ocupado'.
+      // Y NO debe estar 'Disponible'.
+      if (!nuevos.includes('Ocupado')) {
+        nuevos.push('Ocupado');
+      }
+      nuevos = nuevos.filter(e => e !== 'Disponible');
     }
+    // Si deselecciono (Toggle OFF), simplemente se quita (ya lo hizo el filter inicial + no push).
+    // ¿Debemos quitar 'Ocupado'? No necesariamente, el usuario puede querer ver "Todos los ocupados" sin filtro específico.
 
-    // 3. SINCRONIZACIÓN CON GRUPO TOP (Permanencia visual)
-    // El usuario quiere que "Ocupado" permanezca seleccionado si elige opciones de abajo.
-    // Forzamos "Ocupado" o "Disponible" arriba según lo que se elija abajo.
-
-    const grupoTop = ['Ocupado', 'Disponible'];
-    nuevos = nuevos.filter(e => !grupoTop.includes(e)); // Limpiamos Top actual para re-asignar el correcto
-
-    if (valor === 'Estado_Malo' || valor === 'Mantenimiento') {
-      // Si elige Malo/Mantenimiento -> Son 'Ocupado'
-      nuevos.push('Ocupado');
-    } else if (valor === 'Estado_Bueno') {
-      // Si elige Bueno -> Es 'Disponible' (Libre)
-      nuevos.push('Disponible');
-    } else {
-      // Si se deseleccionó todo abajo (nuevos no tiene bottom actual),
-      // ¿Qué hacemos con Top?
-      // Podríamos dejar el Top anterior, pero aquí lo borramos arriba.
-      // Si el usuario hace click para deseleccionar, 'nuevos' ya no tiene 'valor'.
-      // Entonces no entra en los if anteriores.
-      // En este caso, 'nuevos' queda vacío tanto de Bottom como de Top.
-      // Si queremos que "Selecciono ocupado..." permanezca, al quitar abajo, ocupado debería quedarse?
-      // Es un borde raro. Si quito abajo, quizás quiero ver "Ocupado" genérico?
-      // Pero el mapa no muestra nada con solo "Ocupado".
-      // Así que si quito abajo, mejor quitar Top visualmente también para indicar "Nada seleccionado".
-    }
-
-    alCambiarEstados(nuevos); // APLICAR CAMBIOS (Esta línea faltaba)
+    alCambiarEstados(nuevos);
   };
 
   // --- CARGAR DATOS INICIALES (BLOQUES) ---
@@ -143,7 +132,20 @@ const Sidebar = ({
           nombre: b.nombre || b.codigo,
           sector: b.sector
         }));
-        setBloques(listaBloques);
+
+        // DEDUPLICACIÓN: Filtrar bloques repetidos por (sector + codigo)
+        const vistos = new Set();
+        const listaBloquesUnicos = [];
+
+        listaBloques.forEach(b => {
+          const clave = `${b.sector}-${b.codigo}`;
+          if (!vistos.has(clave)) {
+            vistos.add(clave);
+            listaBloquesUnicos.push(b);
+          }
+        });
+
+        setBloques(listaBloquesUnicos);
 
         const sectoresUnicos = [...new Set(listaBloques.map(b => b.sector).filter(Boolean))].sort();
         setSectores(sectoresUnicos);
@@ -157,7 +159,9 @@ const Sidebar = ({
   // Filtrar bloques cuando cambia el sector
   useEffect(() => {
     if (sectorSeleccionado) {
-      const bloquesFiltrados = bloques.filter(b => b.sector === sectorSeleccionado);
+      const bloquesFiltrados = bloques
+        .filter(b => b.sector === sectorSeleccionado)
+        .filter(b => !b.nombre?.toLowerCase().includes('espacio verde') && !b.codigo?.toUpperCase().startsWith('EV'));
       setBloquesDelSector(bloquesFiltrados);
       setBloquesSeleccionados([]);
     } else {
@@ -349,7 +353,7 @@ const Sidebar = ({
     setGenerandoReporte(true);
 
     try {
-      let tNichos = 0, tOcupados = 0, tDisponibles = 0, tReservados = 0;
+      let tNichos = 0, tOcupados = 0, tDisponibles = 0, tMantenimiento = 0;
       const detalles = [];
 
       for (const cod of bloquesSeleccionados) {
@@ -359,88 +363,68 @@ const Sidebar = ({
         const bgId = bloqueGeomItem?.id;
         let nombreBloque = bloqueGeomItem?.nombre || cod;
 
-        // PARCHE EXPLICITO: Espacio Verde no tiene nichos aunque la geometría diga lo contrario
+        // FILTRO: Ocultar Espacio Verde del reporte (no tiene nichos)
         if (nombreBloque.toLowerCase().includes('espacio verde') || cod.toUpperCase().startsWith('EV')) {
-          detalles.push({ nombre: nombreBloque, codigo: cod, total: 0, ocup: 0, disp: 0, resv: 0 });
-          continue;
+          continue; // Saltar este bloque sin agregarlo al reporte
         }
 
-        // ESTRATEGIA 1: Relación Lógica (nichos -> bloques -> bloques_geom)
-        // Primero buscamos el 'bloque' lógico que apunta a este 'bloque_geom'
-        // ESTRATEGIA PRIORITARIA: Consulta DIRECTA a nichos_geom usando el ID de geometría
-        // La captura del usuario muestra que la relación fuerte está en nichos_geom.bloques_geom_id
+        // ESTRATEGIA DUAL SIN TRIGGERS:
+        // - Total: nichos_geom (geometrías físicas)
+        // - Ocupados/Mantenimiento: nichos (tabla administrativa)
+
+        // PASO 1: Obtener TOTAL usando la relación correcta bloques_geom_id
+        // Ya no dependemos del código (B1, B2) porque los IDs de bloques son variados (1, 17, 16...)
+        let totalFisico = 0;
+
         if (bgId) {
-          const { data: nGeomDirecto } = await supabase
+          const { count } = await supabase
             .from('nichos_geom')
-            .select('estado')
+            .select('id', { count: 'exact', head: true })
             .eq('bloques_geom_id', bgId);
 
-          if (nGeomDirecto && nGeomDirecto.length > 0) {
-            feats = nGeomDirecto;
-          }
+          totalFisico = count || 0;
         }
 
-        // ESTRATEGIA 3: Fallback por Texto Mejorado (Código y Nombre)
-        if (feats.length === 0) {
-          let num = null;
-          // 1. CÓDIGO: Solo si empieza con B
-          if (cod?.toUpperCase().startsWith('B')) {
-            const m = cod.match(/\d+/);
-            if (m) num = parseInt(m[0]);
-          }
+        // PASO 2: Buscar nichos administrativos
+        // La tabla nichos usa bloque_id -> bloques.id
+        // Y bloques tiene bloques_geom_id que apunta a bloques_geom.id
+        let ocup = 0, mant = 0;
+        if (bgId) {
+          // Primero buscar el bloque administrativo que apunta a este bloques_geom_id
+          const { data: bloqueAdmin } = await supabase
+            .from('bloques')
+            .select('id')
+            .eq('bloques_geom_id', bgId)
+            .maybeSingle();
 
-          let numName = null;
-          // 2. NOMBRE: Solo si dice "Bloque"
-          if (nombreBloque) {
-            const m = nombreBloque.match(/Bloque\s*0*(\d+)/i);
-            if (m) numName = parseInt(m[1]);
-          }
-
-          const patterns = [];
-
-          const addPatterns = (n) => {
-            if (n === null || isNaN(n)) return;
-            patterns.push(`B-${n.toString().padStart(2, '0')}-%`);
-            patterns.push(`B${n.toString().padStart(2, '0')}-%`);
-          };
-
-          addPatterns(num);
-          if (numName !== null && numName !== num) addPatterns(numName);
-
-          // Agregamos busqueda directa del codigo exacto por si acaso
-          patterns.push(`${cod}-%`);
-
-          if (patterns.length > 0) {
-            const orQuery = patterns.map(p => `codigo.ilike.${p}`).join(',');
-
-            // 1. Intentamos en nichos (lógica)
-            const { data: nPorTexto } = await supabase
+          if (bloqueAdmin) {
+            const { data: nichosAdmin } = await supabase
               .from('nichos')
-              .select('estado')
-              .or(orQuery);
+              .select('codigo, estado')
+              .eq('bloque_id', bloqueAdmin.id);
 
-            if (nPorTexto && nPorTexto.length > 0) {
-              feats = nPorTexto;
-            } else {
-              // 2. Si falla en nichos, intentamos en nichos_geom (física) con el mismo patrón
-              const { data: nPorTextoGeom } = await supabase
-                .from('nichos_geom')
-                .select('estado')
-                .or(orQuery);
-              if (nPorTextoGeom) feats = nPorTextoGeom;
+            if (nichosAdmin && nichosAdmin.length > 0) {
+              ocup = nichosAdmin.filter(n =>
+                n.estado?.toUpperCase() === 'OCUPADO' ||
+                n.estado?.toUpperCase().includes('OCUP')
+              ).length;
+              mant = nichosAdmin.filter(n =>
+                n.estado?.toUpperCase() === 'MANTENIMIENTO' ||
+                n.estado?.toUpperCase().includes('MANT')
+              ).length;
             }
           }
         }
 
-        const ocup = feats.filter(n => n.estado?.toLowerCase() === 'ocupado').length;
-        const disp = feats.filter(n => n.estado?.toLowerCase() === 'disponible').length;
-        // El resto se considera reservado o no disponible para venta inmediata
-        const resv = feats.length - ocup - disp;
+        // DISPONIBLES = Total físico - Ocupados - Mantenimiento
+        const disp = totalFisico - ocup - mant;
 
-        tNichos += feats.length; tOcupados += ocup; tDisponibles += disp; tReservados += resv;
+        tNichos += totalFisico;
+        tOcupados += ocup;
+        tDisponibles += disp;
+        tMantenimiento += mant;
 
-        // Agregamos al reporte incluso si está vacío (para feedback visual)
-        detalles.push({ nombre: nombreBloque, codigo: cod, total: feats.length, ocup, disp, resv });
+        detalles.push({ nombre: nombreBloque, codigo: cod, total: totalFisico, ocup, disp, mant });
       }
 
       const doc = new jsPDF();
@@ -469,7 +453,7 @@ const Sidebar = ({
         body: [
           ['Ocupados', tOcupados, tNichos > 0 ? ((tOcupados / tNichos) * 100).toFixed(1) + '%' : '0%'],
           ['Disponibles', tDisponibles, tNichos > 0 ? ((tDisponibles / tNichos) * 100).toFixed(1) + '%' : '0%'],
-          ['Reservados', tReservados, tNichos > 0 ? ((tReservados / tNichos) * 100).toFixed(1) + '%' : '0%'],
+          ['Mantenimiento', tMantenimiento, tNichos > 0 ? ((tMantenimiento / tNichos) * 100).toFixed(1) + '%' : '0%'],
           ['TOTAL', tNichos, '100%']
         ],
         theme: 'grid',
@@ -480,10 +464,10 @@ const Sidebar = ({
 
       autoTable(doc, {
         startY: doc.lastAutoTable.finalY + 20,
-        head: [['Bloque', 'Total', 'Ocupados', 'Disponibles', 'Reservados']],
+        head: [['Bloque', 'Total', 'Ocupados', 'Disponibles', 'Mantenimiento']],
         body: detalles.map(d => [
           `(${d.codigo}) ${d.nombre}`,
-          d.total, d.ocup, d.disp, d.resv
+          d.total, d.ocup, d.disp, d.mant
         ]),
         theme: 'grid',
         headStyles: { fillColor: [99, 102, 241] }
@@ -587,7 +571,12 @@ const Sidebar = ({
           }} className="form-select" disabled={!sectorFiltro}>
             <option value="">-- Seleccione un bloque --</option>
             {bloques
-              .filter(b => !sectorFiltro || b.sector === sectorFiltro)
+              .filter(b => {
+                if (!sectorFiltro || b.sector !== sectorFiltro) return false;
+                // Exclusión específica solicitada: Bloque 04 en CAPILLA
+                if (sectorFiltro === 'CAPILLA' && (b.nombre === 'Bloque 04' || b.codigo === 'B-20')) return false;
+                return true;
+              })
               .map(b => <option key={b.codigo} value={b.codigo}>({b.codigo}) {b.nombre}</option>)}
           </select>
           {bloqueActual && (
@@ -675,15 +664,23 @@ const Sidebar = ({
           <h3 className="section-title">Filtrar por estado físico</h3>
           <div className="status-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
 
-            <label className={`status-item ${estadosSeleccionados.includes('Estado_Bueno') ? 'active' : ''}`} style={{ opacity: estadosSeleccionados.includes('Disponible') ? 1 : 0.5, pointerEvents: estadosSeleccionados.includes('Disponible') ? 'auto' : 'none' }}>
-              <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #22c55e', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {estadosSeleccionados.includes('Estado_Bueno') && <div style={{ width: '14px', height: '14px', backgroundColor: '#22c55e', borderRadius: '2px' }} />}
+            <label className={`status-item ${estadosSeleccionados.includes('Estado_Bueno') ? 'active' : ''}`}
+              style={{
+                opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5,
+                pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none'
+              }}>
+              <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #60a5fa', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {estadosSeleccionados.includes('Estado_Bueno') && <div style={{ width: '14px', height: '14px', backgroundColor: '#60a5fa', borderRadius: '2px' }} />}
               </div>
-              <input type="checkbox" checked={estadosSeleccionados.includes('Estado_Bueno')} onChange={() => toggleEstadoFisico('Estado_Bueno')} className="hidden-checkbox" disabled={!estadosSeleccionados.includes('Disponible')} />
+              <input type="checkbox" checked={estadosSeleccionados.includes('Estado_Bueno')} onChange={() => toggleEstadoFisico('Estado_Bueno')} className="hidden-checkbox" disabled={!estadosSeleccionados.includes('Ocupado')} />
               <span className="status-text">Buenas condiciones</span>
             </label>
 
-            <label className={`status-item ${estadosSeleccionados.includes('Estado_Malo') ? 'active' : ''}`} style={{ opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5, pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none' }}>
+            <label className={`status-item ${estadosSeleccionados.includes('Estado_Malo') ? 'active' : ''}`}
+              style={{
+                opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5,
+                pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none'
+              }}>
               <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #ef4444', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {estadosSeleccionados.includes('Estado_Malo') && <div style={{ width: '14px', height: '14px', backgroundColor: '#ef4444', borderRadius: '2px' }} />}
               </div>
@@ -691,7 +688,11 @@ const Sidebar = ({
               <span className="status-text">Malas condiciones</span>
             </label>
 
-            <label className={`status-item ${estadosSeleccionados.includes('Mantenimiento') ? 'active' : ''}`} style={{ opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5, pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none' }}>
+            <label className={`status-item ${estadosSeleccionados.includes('Mantenimiento') ? 'active' : ''}`}
+              style={{
+                opacity: estadosSeleccionados.includes('Ocupado') ? 1 : 0.5,
+                pointerEvents: estadosSeleccionados.includes('Ocupado') ? 'auto' : 'none'
+              }}>
               <div className="status-color-box" style={{ width: '24px', height: '24px', borderRadius: '6px', border: '2px solid #fbbf24', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {estadosSeleccionados.includes('Mantenimiento') && <div style={{ width: '14px', height: '14px', backgroundColor: '#fbbf24', borderRadius: '2px' }} />}
               </div>
