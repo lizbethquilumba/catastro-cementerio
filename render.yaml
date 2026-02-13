@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: visor-cementerio
+    env: static
+    buildCommand: npm run build
+    staticPublishPath: ./dist
